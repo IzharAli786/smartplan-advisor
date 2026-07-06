@@ -1,6 +1,6 @@
 name: Deploy Advisor (Windows)
 
-# Auto-deploys https://advisor.smartplan.software on every push to main.
+# Auto-deploys https://advise.smartplan.software on every push to main.
 #
 # Flow (mirrors the SmartPlan deploy workflows, adapted for the pnpm monorepo):
 #   1. Ubuntu runner: pnpm install + build the web PWA (Vite).

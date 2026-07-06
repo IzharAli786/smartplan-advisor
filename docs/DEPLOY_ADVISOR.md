@@ -1,4 +1,4 @@
-# Deploying advisor.smartplan.software (Windows + IIS + PM2)
+# Deploying advise.smartplan.software (Windows + IIS + PM2)
 
 This mirrors the existing SmartPlan deploy (GitHub Actions → SSH/SCP → PM2, fronted
 by IIS + win-acme TLS), adapted for this **pnpm monorepo** and its **decoupled**
@@ -7,7 +7,7 @@ architecture:
 - **Web** — a static PWA (`apps/web/dist`, built by Vite) that **IIS serves directly**.
 - **API** — a Fastify server (`apps/api`) run from TypeScript source by **tsx** under
   **PM2** on `localhost:5052`. IIS reverse-proxies `/api/*` and `/files/*` to it.
-- Everything is **same-origin** at `https://advisor.smartplan.software`, so the
+- Everything is **same-origin** at `https://advise.smartplan.software`, so the
   httpOnly session cookie and `COOKIE_SECURE=true` just work.
 
 | Thing | Value |
@@ -97,7 +97,7 @@ and fill in:
 - `DATABASE_URL` — your DB from B2
 - `AUTH_SECRET` — a long random string:
   `[Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 }))`
-- keep `API_PORT=5052`, `WEB_ORIGIN=https://advisor.smartplan.software`, `COOKIE_SECURE=true`
+- keep `API_PORT=5052`, `WEB_ORIGIN=https://advise.smartplan.software`, `COOKIE_SECURE=true`
 - `OPENAI_API_KEY` — optional (enables voice capture)
 
 ### B4. First deploy (populates the folder)
@@ -124,19 +124,19 @@ pnpm db:seed
 This prints a **set-password invite link** for Tom to the **console only** (the seed
 uses `console.log`, it does **not** send mail, so nothing lands in `outbox.log`) —
 **copy it from that run's output and keep it.** The link points at
-`https://advisor.smartplan.software/set-password?token=...` and only works once DNS +
+`https://advise.smartplan.software/set-password?token=...` and only works once DNS +
 TLS are live (next steps). If you lose it, re-running `pnpm db:seed` will **not**
 reprint it (it sees the admin already exists) — use the app's forgot-password flow
 once the site is live instead.
 
 ### B6. DNS (do this before requesting the TLS cert)
 
-Point `advisor.smartplan.software` at the box (an **A** record to the same public IP
+Point `advise.smartplan.software` at the box (an **A** record to the same public IP
 your other `*.smartplan.software` sites use — check how `dev1.smartplan.software` is
 set at your DNS provider and copy it). Then confirm from the box:
 
 ```powershell
-nslookup advisor.smartplan.software       # must resolve to the box's public IP
+nslookup advise.smartplan.software       # must resolve to the box's public IP
 ```
 
 Wait for it to resolve before B8 — win-acme's HTTP-01 validation needs the hostname
@@ -147,26 +147,26 @@ pointing at this server or issuance fails.
 - **Sites → Add Website**
   - Site name: `smartplan-advisor`
   - Physical path: `C:\smartplan-advisor\apps\web\dist`  *(exists after B4)*
-  - Binding: **http**, port 80, **Host name** `advisor.smartplan.software`
+  - Binding: **http**, port 80, **Host name** `advise.smartplan.software`
 - The `web.config` is already in that folder (Vite emitted it), so the reverse
   proxy + SPA fallback are live immediately.
 
-Sanity check over HTTP first: browse `http://advisor.smartplan.software` — the app
+Sanity check over HTTP first: browse `http://advise.smartplan.software` — the app
 shell should load and `/api/health` should return JSON.
 
 ### B8. TLS with win-acme
 
-Run `wacs.exe`, choose the `advisor.smartplan.software` site, let it issue + bind the
+Run `wacs.exe`, choose the `advise.smartplan.software` site, let it issue + bind the
 Let's Encrypt cert (HTTP-01) and set up auto-renewal — exactly as you did for the
 other sites. This adds the **https:443** binding.
 
 ### B9. Verify end-to-end
 
 ```powershell
-curl https://advisor.smartplan.software/api/health   # {"ok":true,...}
+curl https://advise.smartplan.software/api/health   # {"ok":true,...}
 ```
 
-Open `https://advisor.smartplan.software`, then use Tom's invite link (B5) to set a
+Open `https://advise.smartplan.software`, then use Tom's invite link (B5) to set a
 password and sign in. Finally persist the PM2 process across reboots:
 
 ```powershell
@@ -203,4 +203,4 @@ step needed unless you change IIS/DNS/TLS.
   `CREATE EXTENSION IF NOT EXISTS pg_trgm;` and `CREATE EXTENSION IF NOT EXISTS pgcrypto;`
   then re-run the deploy.
 - **Invite/reset links point at localhost** — `WEB_ORIGIN` in the box `.env` is wrong;
-  it must be `https://advisor.smartplan.software`.
+  it must be `https://advise.smartplan.software`.
