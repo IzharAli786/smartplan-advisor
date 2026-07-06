@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "cmd.exe",
+      "runtimeArgs": ["/c", "set PATH=C:\\Program Files\\nodejs;%PATH%&& C:\\Users\\nadee\\AppData\\Roaming\\npm\\pnpm.cmd --filter @smart-crm/web dev"],
+      "port": 5173
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "cmd.exe",
+      "runtimeArgs": ["/c", "set PATH=C:\\Program Files\\nodejs;%PATH%&& C:\\Users\\nadee\\AppData\\Roaming\\npm\\pnpm.cmd --filter @smart-crm/api dev"],
+      "port": 4000
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Advise mark: bold "A" + teal dot. Navy on light backgrounds, white in dark mode. -->
+  <style>
+    .a { stroke: #1e2a38; }
+    @media (prefers-color-scheme: dark) { .a { stroke: #ffffff; } }
+  </style>
+  <g class="a" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M132 420 L238 100 L344 420" />
+    <path d="M180 300 L296 300" />
+  </g>
+  <circle cx="412" cy="404" r="44" fill="#00d9d9" />
+</svg>

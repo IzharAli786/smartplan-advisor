@@ -1,0 +1,124 @@
+/*
+ * SMARTPLAN CRM — design tokens (build spec §2).
+ * Brand: navy hexagon + sky-blue check. Palette, type scale and spacing per the
+ * product-design spec. To rebrand, change values here — every component references them.
+ */
+:root {
+  /* ── Brand (teal) ── */
+  --brand-teal: #00d9d9; /* bright brand accent: button fill + pops on the dark sidebar */
+  --brand-teal-hover: #00c2c2;
+  --brand-teal-active: #00abab;
+  --brand-blue: #08828a; /* readable deep teal for icons, dots, markers & links on light bg */
+  --brand-blue-hover: #06727a;
+
+  /* ── Primary — readable teal used for links, borders, tabs, ghost text ── */
+  --color-primary: #08828a;
+  --color-primary-dark: #06727a;
+  --color-primary-active: #055f66;
+  --color-primary-contrast: #ffffff;
+  --color-primary-soft: #e2faf9;
+  --color-btn-text: #06393a; /* dark text on the bright teal button (7.4:1) */
+
+  /* ── Navy ── */
+  --navy: #1e2a38;
+  --navy-700: #18222e;
+  --navy-600: #2a3a4d;
+  --navy-500: #3a4d63;
+
+  /* ── Neutrals ── */
+  --color-bg: #f4f6f8;
+  --color-surface: #ffffff;
+  --color-surface-2: #f8fafc;
+  --color-border: #e3e8ee;
+  --border-strong: #cdd5df;
+
+  /* ── Text ── */
+  --color-text: #1e2a38;
+  --text-secondary: #51606f;
+  --color-text-muted: #7b8794;
+
+  /* ── Sidebar (dark navy) ── */
+  --sidebar-bg: #1e2a38;
+  --sidebar-hover: #2a3a4d;
+  --sidebar-text: #9aa9b8;
+  --sidebar-heading: #e6ecf2;
+  --sidebar-border: #2a3a4d;
+  --sidebar-active-bg: #2a3a4d;
+  --sidebar-active-text: #2fe0e0;
+
+  /* ── Semantic ── */
+  --color-accent: #1e9e6a; /* success */
+  --success-soft: #e4f6ee;
+  --success-text: #11633f;
+  --color-warning: #d98a04;
+  --warn-bg: #fcf1dc;
+  --warn-border: #f0d9a5;
+  --warn-text: #8a5800;
+  --color-danger: #dc3d43;
+  --alert-bg: #fbe7e8;
+  --alert-border: #f3cdcf;
+  --alert-text: #971f24;
+
+  /* ── Insight panel ── */
+  --insight-bg: #e2faf9;
+  --insight-border: #bfeeee;
+  --progress-track: #e3e8ee;
+
+  /* ── Radius ── */
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* ── Elevation ── */
+  --shadow: 0 1px 2px rgba(16, 42, 67, 0.06);
+  --shadow-sm: 0 1px 3px rgba(16, 42, 67, 0.08), 0 1px 2px rgba(16, 42, 67, 0.06);
+  --shadow-md: 0 4px 12px rgba(16, 42, 67, 0.1), 0 2px 4px rgba(16, 42, 67, 0.06);
+  --shadow-lg: 0 12px 32px rgba(16, 42, 67, 0.16);
+  --ring: 0 0 0 3px rgba(0, 217, 217, 0.4);
+
+  --font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --sidebar-width: 248px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  color-scheme: light;
+}
+
+/* ── Dark mode ──────────────────────────────────────────────
+ * Only neutrals/surfaces/semantic tints flip; brand blue + navy sidebar stay put. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg: #0e1621;
+  --color-surface: #18232f;
+  --color-surface-2: #1f2d3a;
+  --color-border: #2a3a4a;
+  --border-strong: #3a4d5f;
+
+  --color-text: #e7edf3;
+  --text-secondary: #a4b2c0;
+  --color-text-muted: #8593a1;
+
+  /* Teal accents brighten on dark surfaces for contrast. */
+  --color-primary: #2fd0d0;
+  --color-primary-dark: #5fdede;
+  --brand-blue: #2fd0d0;
+  --color-primary-soft: #0d3436; /* icon-tile bg behind teal icons */
+
+  --success-soft: #122a1e;
+  --success-text: #6ad6a0;
+  --warn-bg: #2a2410;
+  --warn-border: #4a3d16;
+  --warn-text: #e6bb5e;
+  --alert-bg: #2c1719;
+  --alert-border: #4a2629;
+  --alert-text: #f0a4a7;
+
+  --insight-bg: #0d2a2c;
+  --insight-border: #1e4646;
+  --progress-track: #2a3a4a;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+}

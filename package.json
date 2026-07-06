@@ -1,0 +1,26 @@
+{
+  "name": "smart-crm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SmartPlan Advisor CRM — internal sales tool (PWA)",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "db:generate": "pnpm --filter @smart-crm/db generate",
+    "db:migrate": "pnpm --filter @smart-crm/db migrate",
+    "db:seed": "pnpm --filter @smart-crm/db seed",
+    "db:reset": "pnpm --filter @smart-crm/db reset",
+    "api:dev": "pnpm --filter @smart-crm/api dev",
+    "web:dev": "pnpm --filter @smart-crm/web dev"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  }
+}

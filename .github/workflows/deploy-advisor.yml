@@ -1,0 +1,106 @@
+name: Deploy Advisor (Windows)
+
+# Auto-deploys https://advisor.smartplan.software on every push to main.
+#
+# Flow (mirrors the SmartPlan deploy workflows, adapted for the pnpm monorepo):
+#   1. Ubuntu runner: pnpm install + build the web PWA (Vite).
+#   2. Tar the source + the built web bundle (no node_modules / .git / .env).
+#   3. SCP the tarball to the Windows box.
+#   4. SSH: extract, pnpm install, run DB migrations, (re)start PM2.
+#
+# The Fastify API is NOT compiled here — it runs from TypeScript source via tsx
+# (see ecosystem.config.cjs). Only the web bundle is built, because IIS serves it
+# statically from C:\smartplan-advisor\apps\web\dist.
+#
+# Reuses the SAME repo secrets as the SmartPlan workflows:
+#   SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, SSH_PORT
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      # --prod=false so tsx (a devDependency) is installed — it is the production
+      # interpreter for the API. See ecosystem.config.cjs.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prod=false
+
+      - name: Build web PWA
+        run: pnpm --filter @smart-crm/web build
+
+      # Bundle exactly what the box needs: all source + the freshly built
+      # apps/web/dist, minus node_modules (recreated by pnpm on the box), .git,
+      # .env, the API's stale compiled dist, and local dev storage.
+      - name: Package deploy bundle
+        run: |
+          tar \
+            --exclude='*/node_modules' \
+            --exclude='*/node_modules/*' \
+            --exclude='apps/api/dist' \
+            --exclude='*/storage-dev' \
+            --exclude='*/storage-dev/*' \
+            -czf deploy.tgz \
+            apps packages db \
+            package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json .npmrc \
+            ecosystem.config.cjs
+
+      # Just ensure the folder exists. We deliberately DO NOT delete the old bundle
+      # or stop the API here: the tarball is extracted OVER the existing files in the
+      # next step, so the currently-live site keeps serving until the new files land
+      # and PM2 reloads at the very end. If anything fails before then, the old
+      # release is still running (rollback = re-run this workflow on the prior commit).
+      - name: Ensure target dir exists on the box
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor' | Out-Null"
+
+      - name: Upload bundle to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "deploy.tgz"
+          target: "C:/smartplan-advisor"
+
+      - name: Extract, install, migrate, restart
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          # FAIL-FAST: Windows PowerShell 5.1 does NOT turn a native command's
+          # non-zero exit into a terminating error, and `;` does not short-circuit,
+          # so we check $LASTEXITCODE after every native command and `exit 1` on
+          # failure. Otherwise a failed `pnpm install` / `pnpm db:migrate` would be
+          # swallowed, PM2 would reload the new code against an un-migrated schema,
+          # and the Actions run would still go green.
+          #   - tar.exe (bsdtar) ships with Windows 10 / Server 2019+.
+          #   - db:migrate is the forward-only, NON-interactive, idempotent runner.
+          #   - startOrReload handles both first-run (start) and updates (reload).
+          script: |
+            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Set-Location 'C:\smartplan-advisor'; $v=[version](node -p 'process.versions.node'); if ($v -lt [version]'20.6') { Write-Error ('Node >=20.6 required for --import tsx, found ' + $v); exit 1 }; tar -xzf deploy.tgz; if ($LASTEXITCODE -ne 0) { exit 1 }; Remove-Item deploy.tgz -Force; pnpm install --frozen-lockfile --prod=false; if ($LASTEXITCODE -ne 0) { exit 1 }; pnpm db:migrate; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 startOrReload ecosystem.config.cjs --update-env; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 save; pm2 list"
