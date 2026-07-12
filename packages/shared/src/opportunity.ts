@@ -8,8 +8,9 @@ import { z } from "zod";
  * those paths is additive — not a migration. Do not let other shapes leak downstream.
  */
 
-/** Provenance of an opportunity's creation. Only `typed` is used in v1. */
-export const opportunitySourceSchema = z.enum(["typed", "voice", "enriched", "lead"]);
+/** Provenance of an opportunity's creation. `referral` rows are created by the
+ * SmartPlan activation ingest (a referred customer's instance went live). */
+export const opportunitySourceSchema = z.enum(["typed", "voice", "enriched", "lead", "referral"]);
 export type OpportunitySource = z.infer<typeof opportunitySourceSchema>;
 
 const usState = z
@@ -65,11 +66,15 @@ export const opportunityDraftSchema = opportunityDraftBase.refine(
 
 export type OpportunityDraft = z.infer<typeof opportunityDraftSchema>;
 
-/** Payload for updating an existing opportunity (status changes, edits, follow-ups). */
+/** Payload for updating an existing opportunity (status changes, edits, follow-ups).
+ * `state` additionally accepts "" here: referral-sourced opportunities may be created
+ * without a US state (SmartPlan orgs often have none), and the edit form round-trips
+ * the stored value — requiring 2 letters would make those rows un-savable. */
 export const opportunityUpdateSchema = opportunityDraftBase
   .partial()
   .extend({
     status: z.string().trim().min(1).optional(),
+    state: usState.or(z.literal("")).optional(),
   })
   .omit({ source: true });
 
