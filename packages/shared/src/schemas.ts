@@ -89,9 +89,13 @@ export const smartPlanTxnSchema = z.object({
   advisor_id: z.string().uuid(),
   stripe_transaction_id: z.string().trim().max(120).optional().or(z.literal("").transform(() => undefined)),
   occurred_at: z.coerce.date().optional(),
-  amount: z.coerce.number().min(0).max(1_000_000_000),
+  // Negative amounts are allowed for reversals/clawbacks (failed payments,
+  // refunds). The Smart Plan report sums amount * rate, so a negative row nets
+  // the advisor's commission down automatically.
+  amount: z.coerce.number().min(-1_000_000_000).max(1_000_000_000),
   product: z.string().trim().max(160).optional().or(z.literal("").transform(() => undefined)),
-  status: z.enum(["active", "inactive"]).default("active"),
+  // "adjustment" marks a reversal row (e.g. a failed payment clawback).
+  status: z.enum(["active", "inactive", "adjustment"]).default("active"),
 });
 export type SmartPlanTxnInput = z.infer<typeof smartPlanTxnSchema>;
 
@@ -99,6 +103,23 @@ export type SmartPlanTxnInput = z.infer<typeof smartPlanTxnSchema>;
 export const smartPlanTxnIngestSchema = smartPlanTxnSchema.extend({
   stripe_transaction_id: z.string().trim().min(1).max(120),
 });
+
+/**
+ * Referral activation payload SmartPlan posts to /activation when a referred
+ * customer activates. The API creates a pipeline opportunity owned by the
+ * referring advisor (source = "referral").
+ */
+export const smartPlanActivationSchema = z.object({
+  advisor_id: z.string().uuid(),
+  company_name: z.string().trim().min(1).max(200),
+  state: z.string().trim().max(80).optional().or(z.literal("").transform(() => undefined)),
+  contact_name: z.string().trim().max(160).optional().or(z.literal("").transform(() => undefined)),
+  contact_email: z.string().trim().max(200).optional().or(z.literal("").transform(() => undefined)),
+  contact_cell: z.string().trim().max(40).optional().or(z.literal("").transform(() => undefined)),
+  product: z.string().trim().max(160).optional().or(z.literal("").transform(() => undefined)),
+  opportunity_value: z.coerce.number().min(0).max(1_000_000_000).optional(),
+});
+export type SmartPlanActivationInput = z.infer<typeof smartPlanActivationSchema>;
 
 /** ── Performance: advisor setup, activities, badges, high-fives ── */
 export const advisorSetupSchema = z.object({

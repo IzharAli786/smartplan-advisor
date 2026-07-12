@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(yarn check *)",
+      "Bash(node -e ' *)"
+    ],
+    "additionalDirectories": [
+      "/Users/mac/izhar/smartplan-postgres/smart-plan/server",
+      "/Users/mac/izhar/smartplan-postgres/smart-plan/client/src/pages",
+      "/Users/mac/izhar/smartplan-postgres/smart-plan/client/src/pages/auth",
+      "/Users/mac/izhar/smartplan-postgres/smart-plan/client/src",
+      "/Users/mac/izhar/smartplan-postgres/smart-plan"
+    ]
+  }
+}

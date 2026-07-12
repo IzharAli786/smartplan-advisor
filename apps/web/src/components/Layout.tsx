@@ -27,7 +27,7 @@ function initials(name: string): string {
 }
 
 export default function Layout() {
-  const { user, logout, isManager, refresh } = useAuth();
+  const { user, logout, isManager, isSuperAdmin, refresh } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   async function uploadAvatar(file: File) {
@@ -73,6 +73,9 @@ export default function Layout() {
         { to: "/dashboard", label: "Dashboard", icon: "dashboard" },
         { to: "/pipeline", label: "Pipeline", icon: "pipeline" },
         { to: "/users", label: "Smart Advisors", icon: "users" },
+        ...(isSuperAdmin
+          ? [{ to: "/super-admins", label: "Super Admins", icon: "user-plus" } as NavItem]
+          : []),
         { to: "/leads", label: "Leads", icon: "building" },
         { to: "/address-book", label: "Address Book", icon: "contact" },
         { to: "/claims", label: "Takeover Requests", icon: "requests" },

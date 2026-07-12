@@ -10,7 +10,10 @@ import type { CurrentUser } from "../api/types.ts";
 
 const ROLE_LABEL: Record<string, string> = { super_admin: "Super Admin", manager: "Manager", advisor: "Advisor" };
 
-export default function UsersPage() {
+export default function UsersPage({
+  title = "Smart Advisors",
+  subtitle = "Roster, invites and advisor management",
+}: { title?: string; subtitle?: string } = {}) {
   const { user: me, isSuperAdmin } = useAuth();
   const { data, loading, error, reload } = useApi<{ users: CurrentUser[] }>("/api/users");
   const [showCreate, setShowCreate] = useState(false);
@@ -58,8 +61,8 @@ export default function UsersPage() {
   return (
     <div>
       <PageHead
-        title="Smart Advisors"
-        subtitle="Roster, invites and advisor management"
+        title={title}
+        subtitle={subtitle}
         actions={
           isSuperAdmin ? (
             <button className="btn" onClick={() => { setShowCreate((v) => !v); setEditingId(null); }}>

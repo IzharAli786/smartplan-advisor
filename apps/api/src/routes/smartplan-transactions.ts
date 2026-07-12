@@ -1,11 +1,23 @@
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, gte, ilike, lte, or } from "drizzle-orm";
-import { db, smartplanTransactions, users } from "@smart-crm/db";
-import { smartPlanTxnSchema, smartPlanTxnIngestSchema, isManagerial } from "@smart-crm/shared";
+import { db, smartplanTransactions, opportunities, users } from "@smart-crm/db";
+import {
+  smartPlanTxnSchema,
+  smartPlanTxnIngestSchema,
+  smartPlanActivationSchema,
+  isManagerial,
+  normalizeCompanyName,
+  normalizeEmail,
+  normalizePhoneE164,
+  computeNextStep,
+  usStateCode,
+} from "@smart-crm/shared";
 import { parse } from "../lib/validate.js";
 import { authenticate } from "../auth/context.js";
 import { requireUser, requireManagerial } from "../auth/guards.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
+import { getStage, getInitialStageKey } from "../services/stages.js";
+import { logActivity } from "../services/activity.js";
 import { env } from "../env.js";
 
 export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
@@ -32,6 +44,76 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
       .onConflictDoNothing()
       .returning();
     return { transaction: created ?? null, deduped: !created };
+  });
+
+  // ── Referral activation (no session) — a SmartPlan webhook posts here when a
+  // referred customer activates. We create a pipeline opportunity owned by the
+  // referring advisor so it appears in their pipeline. Same shared secret. ──
+  app.post("/activation", async (req) => {
+    if (!env.smartplanIngestSecret) throw badRequest("Ingest is not configured on the server", "ingest_disabled");
+    if ((req.headers["x-ingest-secret"] as string | undefined) !== env.smartplanIngestSecret) throw forbidden("Bad ingest secret");
+    const input = parse(smartPlanActivationSchema, req.body);
+
+    const [advisor] = await db
+      .select({ id: users.id, orgId: users.orgId })
+      .from(users)
+      .where(eq(users.id, input.advisor_id))
+      .limit(1);
+    if (!advisor) throw notFound("Advisor not found");
+
+    const companyNameNormalized = normalizeCompanyName(input.company_name);
+    // Idempotent: one referral opportunity per (advisor, company) — safe under
+    // webhook retries.
+    const [existing] = await db
+      .select({ id: opportunities.id })
+      .from(opportunities)
+      .where(and(eq(opportunities.advisorId, advisor.id), eq(opportunities.companyNameNormalized, companyNameNormalized)))
+      .limit(1);
+    if (existing) return { opportunity_id: existing.id, deduped: true };
+
+    const now = new Date();
+    const initialStage = await getInitialStageKey(advisor.orgId);
+    const stage = await getStage(advisor.orgId, initialStage);
+    const { nextStep, nextStepDue } = computeNextStep({
+      stageKey: initialStage,
+      isTerminal: stage?.isTerminal ?? false,
+      statusChangedAt: now,
+      followUpAt: null,
+    });
+
+    const [opp] = await db
+      .insert(opportunities)
+      .values({
+        orgId: advisor.orgId,
+        advisorId: advisor.id,
+        contractorCompanyName: input.company_name,
+        companyNameNormalized,
+        contactName: input.contact_name ?? null,
+        contactEmail: input.contact_email ?? null,
+        contactEmailNormalized: normalizeEmail(input.contact_email),
+        contactCell: input.contact_cell ?? null,
+        contactCellE164: normalizePhoneE164(input.contact_cell),
+        product: input.product ?? null,
+        opportunityValue: input.opportunity_value != null ? String(input.opportunity_value) : null,
+        status: initialStage,
+        statusChangedAt: now,
+        state: usStateCode(input.state) ?? input.state ?? "",
+        notes: "Created from a SmartPlan referral activation.",
+        nextStep,
+        nextStepDue,
+        source: "referral",
+        lastActivityAt: now,
+      })
+      .returning({ id: opportunities.id });
+
+    await logActivity({
+      opportunityId: opp!.id,
+      advisorId: advisor.id,
+      type: "system",
+      subject: "SmartPlan referral activated",
+    });
+
+    return { opportunity_id: opp!.id, deduped: false };
   });
 
   app.addHook("preHandler", authenticate);

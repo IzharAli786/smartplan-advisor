@@ -22,7 +22,7 @@ export const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 /** Enums mirror db/migrations/0001_init.sql. */
 export const userRole = pgEnum("user_role", ["super_admin", "manager", "advisor"]);
 export const tokenPurpose = pgEnum("token_purpose", ["invite", "reset"]);
-export const opportunitySource = pgEnum("opportunity_source", ["typed", "voice", "enriched", "lead"]);
+export const opportunitySource = pgEnum("opportunity_source", ["typed", "voice", "enriched", "lead", "referral"]);
 export const collateralType = pgEnum("collateral_type", ["pdf", "slides", "image", "video", "link"]);
 export const claimStatus = pgEnum("claim_status", ["pending", "approved", "rejected"]);
 export const notificationType = pgEnum("notification_type", [

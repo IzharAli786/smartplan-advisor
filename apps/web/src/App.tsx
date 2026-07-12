@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext.tsx";
 import Layout from "./components/Layout.tsx";
-import { RequireAuth, RequireManager } from "./components/guards.tsx";
+import { RequireAuth, RequireManager, RequireSuperAdmin } from "./components/guards.tsx";
 
 import LoginPage from "./pages/LoginPage.tsx";
 import RegisterPage from "./pages/RegisterPage.tsx";
@@ -18,6 +18,7 @@ import AdvisorDetailPage from "./pages/AdvisorDetailPage.tsx";
 import ClaimsPage from "./pages/ClaimsPage.tsx";
 import ReportsPage from "./pages/ReportsPage.tsx";
 import UsersPage from "./pages/UsersPage.tsx";
+import SuperAdminsPage from "./pages/SuperAdminsPage.tsx";
 import SettingsPage from "./pages/SettingsPage.tsx";
 import BrandingPage from "./pages/BrandingPage.tsx";
 import AdminMenuPage from "./pages/AdminMenuPage.tsx";
@@ -84,6 +85,9 @@ export default function App() {
 
         {/* Roster: managerial can view + edit advisors; creation is gated to super admin in-page */}
         <Route path="/users" element={<RequireManager><UsersPage /></RequireManager>} />
+
+        {/* Super Admins: full user administration, super-admin only */}
+        <Route path="/super-admins" element={<RequireSuperAdmin><SuperAdminsPage /></RequireSuperAdmin>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
