@@ -126,7 +126,7 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
     // Advisors only ever see their own; managers may scope to one advisor or see all.
     if (!isManagerial(user.role)) conds.push(eq(smartplanTransactions.advisorId, user.id));
     else if (q.advisorId) conds.push(eq(smartplanTransactions.advisorId, q.advisorId));
-    if (q.status === "active" || q.status === "inactive") conds.push(eq(smartplanTransactions.status, q.status));
+    if (q.status === "active" || q.status === "inactive" || q.status === "adjustment") conds.push(eq(smartplanTransactions.status, q.status));
     if (q.from) conds.push(gte(smartplanTransactions.occurredAt, new Date(q.from)));
     if (q.to) {
       const to = new Date(q.to);

@@ -87,6 +87,7 @@ export default function SmartPlanTransactions({ advisorId }: { advisorId: string
             <option value="">All statuses</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
+            <option value="adjustment">Adjustment</option>
           </select>
         </div>
         <div className="field" style={{ margin: 0, width: 150 }}><label style={{ fontSize: ".7rem" }}>From</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
