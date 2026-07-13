@@ -2,7 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { useApi } from "../hooks/useApi.ts";
 import { api, ApiError } from "../api/client.ts";
 import { useAuth } from "../auth/AuthContext.tsx";
-import { canEditUser } from "@smart-crm/shared";
+import { canEditUser, type Role } from "@smart-crm/shared";
 import { Card, EmptyState, ErrorBanner, PageHead, Spinner, StatusBadge } from "../components/ui.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { PhoneInput } from "../components/PhoneInput.tsx";
@@ -13,7 +13,8 @@ const ROLE_LABEL: Record<string, string> = { super_admin: "Super Admin", manager
 export default function UsersPage({
   title = "Smart Advisors",
   subtitle = "Roster, invites and advisor management",
-}: { title?: string; subtitle?: string } = {}) {
+  roles = ["advisor"],
+}: { title?: string; subtitle?: string; roles?: Role[] } = {}) {
   const { user: me, isSuperAdmin } = useAuth();
   const { data, loading, error, reload } = useApi<{ users: CurrentUser[] }>("/api/users");
   const [showCreate, setShowCreate] = useState(false);
@@ -23,11 +24,19 @@ export default function UsersPage({
   const [createForm, setCreateForm] = useState({
     full_name: "",
     email: "",
-    role: "advisor",
+    role: roles[0],
     phone: "",
     states_covered: "",
     current_commission_rate: "33",
   });
+
+  // This page is one role slice of the shared roster: /users shows advisors,
+  // /super-admins shows managers + super admins. The API returns everyone;
+  // we filter here so no role is ever listed on both pages (or on neither).
+  const visibleUsers = (data?.users ?? []).filter((u) => roles.includes(u.role));
+  // Empty-state copy must reflect the slice, not the whole org — otherwise an
+  // org with super admins but no advisors reads "No users yet" on /users.
+  const emptyTitle = roles.includes("advisor") ? "No advisors yet" : "No managers or super admins yet";
 
   async function createUser(e: FormEvent) {
     e.preventDefault();
@@ -47,7 +56,7 @@ export default function UsersPage({
         payload.current_commission_rate = Number(createForm.current_commission_rate);
       await api.post("/api/users", payload);
       setShowCreate(false);
-      setCreateForm({ full_name: "", email: "", role: "advisor", phone: "", states_covered: "", current_commission_rate: "33" });
+      setCreateForm({ full_name: "", email: "", role: roles[0], phone: "", states_covered: "", current_commission_rate: "33" });
       reload();
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : "Could not create user");
@@ -87,14 +96,16 @@ export default function UsersPage({
               <label>Email</label>
               <input type="email" value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} required />
             </div>
-            <div className="field">
-              <label>Role</label>
-              <select value={createForm.role} onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}>
-                <option value="advisor">Advisor</option>
-                <option value="manager">Manager</option>
-                <option value="super_admin">Super Admin</option>
-              </select>
-            </div>
+            {roles.length > 1 && (
+              <div className="field">
+                <label>Role</label>
+                <select value={createForm.role} onChange={(e) => setCreateForm({ ...createForm, role: e.target.value as Role })}>
+                  {roles.map((r) => (
+                    <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="field">
               <label>States covered (comma-separated)</label>
               <input value={createForm.states_covered} onChange={(e) => setCreateForm({ ...createForm, states_covered: e.target.value })} placeholder="CO, TX, AZ" />
@@ -110,10 +121,10 @@ export default function UsersPage({
         </Card>
       )}
 
-      {!data || data.users.length === 0 ? (
-        <EmptyState icon="users" title="No users yet" />
+      {visibleUsers.length === 0 ? (
+        <EmptyState icon="users" title={emptyTitle} />
       ) : (
-        data.users.map((u) =>
+        visibleUsers.map((u) =>
           editingId === u.id ? (
             <EditUserCard
               key={u.id}
