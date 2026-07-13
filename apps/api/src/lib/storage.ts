@@ -51,7 +51,12 @@ class DbStorage implements StorageDriver {
   signedUrl(key: string, ttlSeconds = 600): string {
     const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
     const sig = sign(key, exp);
-    return `/files/${encodeURIComponent(key)}?exp=${exp}&sig=${sig}`;
+    // Encode each path SEGMENT but keep the "/" separators literal — behind
+    // IIS/ARR a percent-encoded %2F is decoded before the request reaches the
+    // API, so the delivery route matches on the full multi-segment key. The
+    // signature is over the raw key; routes/files.ts decodes back to it.
+    const path = key.split("/").map(encodeURIComponent).join("/");
+    return `/files/${path}?exp=${exp}&sig=${sig}`;
   }
 
   verify(key: string, exp: number, sig: string): boolean {

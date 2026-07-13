@@ -30,7 +30,8 @@ export interface ReportMeta {
 export const REPORT_CATALOG: ReportMeta[] = [
   { key: "converted", title: "Converted Customers", description: "Every won deal with its effective commission.", dateRange: true },
   { key: "advisor-performance", title: "Advisor Performance", description: "Leaderboard: pipeline, wins, conversion and commission per advisor.", dateRange: true },
-  { key: "commission-by-advisor", title: "Commission Summary", description: "Total commission owed per advisor for the period.", dateRange: true },
+  { key: "commission-by-advisor", title: "Commission Summary", description: "Total commission owed per advisor (pipeline + SmartPlan referrals) for the period.", dateRange: true },
+  { key: "referral-by-advisor", title: "Referral Commission by Advisor", description: "SmartPlan referral subscriptions per advisor: customers subscribed, revenue and commission.", dateRange: true },
   { key: "sales-by-state", title: "Sales by State", description: "Pipeline and won business by territory.", dateRange: true },
   { key: "sales-by-product", title: "Sales by Product", description: "Which SmartPlan products are selling.", dateRange: true },
   { key: "pipeline-by-stage", title: "Pipeline by Stage", description: "Open opportunities and value at each stage.", dateRange: false },
@@ -88,6 +89,60 @@ async function getTransactions(orgId: string, from: string, to: string): Promise
       dealValue,
       rate,
       commission: round2((dealValue * rate) / 100),
+    };
+  });
+}
+
+interface EnrichedSpTx {
+  advisorId: string;
+  advisorName: string;
+  company: string;
+  companyNormalized: string;
+  product: string | null;
+  occurredAt: string;
+  amount: number;
+  rate: number;
+  commission: number;
+  status: string;
+}
+
+/** SmartPlan REFERRAL transactions (recurring Stripe subscription commission)
+ *  in a date range — the stream that lands via /ingest, kept separate from the
+ *  pipeline `transactions` table. Each row carries the rate EFFECTIVE on its
+ *  transaction date (§10). */
+async function getSmartplanTransactions(orgId: string, from: string, to: string): Promise<EnrichedSpTx[]> {
+  const rows = await db.execute<{
+    advisor_id: string;
+    advisor_name: string;
+    company: string | null;
+    company_normalized: string | null;
+    occurred_at: string;
+    amount: string;
+    product: string | null;
+    status: string;
+  }>(dsql`
+    SELECT t.advisor_id, u.full_name AS advisor_name, t.company_name AS company,
+           t.company_name_normalized AS company_normalized, t.occurred_at, t.amount, t.product, t.status
+    FROM smartplan_transactions t
+    JOIN users u ON u.id = t.advisor_id
+    WHERE t.org_id = ${orgId} AND t.occurred_at >= ${from}::timestamptz AND t.occurred_at <= ${to}::timestamptz
+    ORDER BY t.occurred_at DESC
+  `);
+  const history = await getHistoryFor([...new Set(rows.map((r) => r.advisor_id))]);
+  return rows.map((r) => {
+    const amount = round2(Number(r.amount));
+    const rate = resolveRate(history.get(r.advisor_id), new Date(r.occurred_at)) ?? 0;
+    return {
+      advisorId: r.advisor_id,
+      advisorName: r.advisor_name,
+      company: r.company ?? "—",
+      companyNormalized: r.company_normalized ?? (r.company ? r.company.toLowerCase() : ""),
+      product: r.product,
+      occurredAt: r.occurred_at,
+      amount,
+      rate,
+      commission: round2((amount * rate) / 100),
+      status: r.status,
     };
   });
 }
@@ -193,35 +248,66 @@ async function advisorPerformance(orgId: string, from: string, to: string): Prom
 }
 
 async function commissionByAdvisor(orgId: string, from: string, to: string): Promise<ReportData> {
-  const txs = await getTransactions(orgId, from, to);
-  const byAdvisor = new Map<string, { advisorName: string; deals: number; dealValue: number; commission: number }>();
+  // Total commission owed per advisor spans BOTH streams: pipeline deals
+  // (`transactions`) and SmartPlan referral subscriptions (`smartplan_transactions`).
+  // The two tables are disjoint (a dollar is in exactly one), so summing is safe —
+  // and advisors whose ONLY business is referrals now appear instead of showing $0.
+  const [txs, spTxs] = await Promise.all([
+    getTransactions(orgId, from, to),
+    getSmartplanTransactions(orgId, from, to),
+  ]);
+  type Agg = { advisorName: string; deals: number; dealValue: number; pipelineCommission: number; referralRevenue: number; referralCommission: number };
+  const byAdvisor = new Map<string, Agg>();
+  const bucket = (id: string, name: string): Agg => {
+    let a = byAdvisor.get(id);
+    if (!a) { a = { advisorName: name, deals: 0, dealValue: 0, pipelineCommission: 0, referralRevenue: 0, referralCommission: 0 }; byAdvisor.set(id, a); }
+    return a;
+  };
   for (const t of txs) {
-    const a = byAdvisor.get(t.advisorId) ?? { advisorName: t.advisorName, deals: 0, dealValue: 0, commission: 0 };
+    const a = bucket(t.advisorId, t.advisorName);
     a.deals++;
     a.dealValue += t.dealValue;
-    a.commission += t.commission;
-    byAdvisor.set(t.advisorId, a);
+    a.pipelineCommission += t.commission;
+  }
+  for (const t of spTxs) {
+    const a = bucket(t.advisorId, t.advisorName);
+    a.referralRevenue += t.amount;
+    a.referralCommission += t.commission;
   }
   const rows = [...byAdvisor.values()]
-    .map((a) => ({ advisorName: a.advisorName, deals: a.deals, dealValue: round2(a.dealValue), commission: round2(a.commission) }))
-    .sort((a, b) => b.commission - a.commission);
+    .map((a) => ({
+      advisorName: a.advisorName,
+      deals: a.deals,
+      dealValue: round2(a.dealValue),
+      pipelineCommission: round2(a.pipelineCommission),
+      referralRevenue: round2(a.referralRevenue),
+      referralCommission: round2(a.referralCommission),
+      totalCommission: round2(a.pipelineCommission + a.referralCommission),
+    }))
+    .sort((a, b) => b.totalCommission - a.totalCommission);
   return {
     key: "commission-by-advisor",
     title: "Commission Summary",
-    subtitle: "Commission owed per advisor for the period",
+    subtitle: "Total commission owed per advisor (pipeline + SmartPlan referrals) for the period",
     dateRange: true,
     columns: [
       { key: "advisorName", label: "Advisor", type: "text" },
       { key: "deals", label: "Deals Won", type: "number" },
       { key: "dealValue", label: "Deal Value", type: "currency" },
-      { key: "commission", label: "Commission", type: "currency" },
+      { key: "pipelineCommission", label: "Pipeline Comm.", type: "currency" },
+      { key: "referralRevenue", label: "Referral Rev.", type: "currency" },
+      { key: "referralCommission", label: "Referral Comm.", type: "currency" },
+      { key: "totalCommission", label: "Total Commission", type: "currency" },
     ],
     rows,
     totals: {
       advisorName: `${rows.length} advisors`,
       deals: rows.reduce((s, r) => s + r.deals, 0),
       dealValue: round2(rows.reduce((s, r) => s + r.dealValue, 0)),
-      commission: round2(rows.reduce((s, r) => s + r.commission, 0)),
+      pipelineCommission: round2(rows.reduce((s, r) => s + r.pipelineCommission, 0)),
+      referralRevenue: round2(rows.reduce((s, r) => s + r.referralRevenue, 0)),
+      referralCommission: round2(rows.reduce((s, r) => s + r.referralCommission, 0)),
+      totalCommission: round2(rows.reduce((s, r) => s + r.totalCommission, 0)),
     },
     generatedAt: "",
   };
@@ -376,58 +462,69 @@ async function forecast(orgId: string): Promise<ReportData> {
 }
 
 async function smartplanTransactionsReport(orgId: string, from: string, to: string): Promise<ReportData> {
-  const rows = await db.execute<{
-    advisor_id: string;
-    advisor_name: string;
-    occurred_at: string;
-    stripe_transaction_id: string | null;
-    amount: string;
-    product: string | null;
-    status: string;
-  }>(dsql`
-    SELECT t.advisor_id, u.full_name AS advisor_name, t.occurred_at, t.stripe_transaction_id, t.amount, t.product, t.status
-    FROM smartplan_transactions t
-    JOIN users u ON u.id = t.advisor_id
-    WHERE t.org_id = ${orgId} AND t.occurred_at >= ${from}::timestamptz AND t.occurred_at <= ${to}::timestamptz
-    ORDER BY t.occurred_at DESC
-  `);
-  // Resolve each transaction's commission from the rate EFFECTIVE on its transaction date.
-  const history = await getHistoryFor([...new Set(rows.map((r) => r.advisor_id))]);
-  const data = rows.map((r) => {
-    const amount = round2(Number(r.amount));
-    const rate = resolveRate(history.get(r.advisor_id), new Date(r.occurred_at)) ?? 0;
-    return {
-      advisorId: r.advisor_id,
-      advisorName: r.advisor_name,
-      occurredAt: r.occurred_at,
-      stripeId: r.stripe_transaction_id ?? "—",
-      product: r.product ?? "—",
-      amount,
-      rate,
-      commission: round2((amount * rate) / 100),
-      status: r.status,
-    };
-  });
+  const data = await getSmartplanTransactions(orgId, from, to);
   return {
     key: "smartplan-transactions",
     title: "Smart Plan Transactions",
-    subtitle: "All Smart Plan transactions by advisor, with commission at the rate effective on each transaction date",
+    subtitle: "Every referral subscription payment by advisor and customer, with commission at the rate effective on each transaction date",
     dateRange: true,
     columns: [
       { key: "advisorName", label: "Advisor", type: "text" },
+      { key: "company", label: "Customer", type: "text" },
       { key: "occurredAt", label: "Date", type: "date" },
-      { key: "stripeId", label: "Stripe #", type: "text" },
       { key: "product", label: "Product", type: "text" },
       { key: "amount", label: "Amount", type: "currency" },
       { key: "rate", label: "Rate %", type: "percent" },
       { key: "commission", label: "Commission", type: "currency" },
       { key: "status", label: "Status", type: "text" },
     ],
-    rows: data,
+    rows: data.map((r) => ({ ...r })),
     totals: {
       advisorName: `${data.length} transactions`,
       amount: round2(data.reduce((s, r) => s + r.amount, 0)),
       commission: round2(data.reduce((s, r) => s + r.commission, 0)),
+    },
+    generatedAt: "",
+  };
+}
+
+/** Per-advisor rollup of the referral business: which/how-many customers
+ *  subscribed under each advisor, plus their referral revenue + commission.
+ *  Answers Requirement C's "how many subscribed" and "the total" per advisor. */
+async function referralByAdvisor(orgId: string, from: string, to: string): Promise<ReportData> {
+  const txs = await getSmartplanTransactions(orgId, from, to);
+  const byAdvisor = new Map<string, { advisorName: string; customers: Set<string>; txns: number; revenue: number; commission: number }>();
+  for (const t of txs) {
+    const a = byAdvisor.get(t.advisorId) ?? { advisorName: t.advisorName, customers: new Set<string>(), txns: 0, revenue: 0, commission: 0 };
+    // A customer counts as "subscribed" once they have a positive (paid) row.
+    if (t.amount > 0 && t.companyNormalized) a.customers.add(t.companyNormalized);
+    a.txns++;
+    a.revenue += t.amount;
+    a.commission += t.commission;
+    byAdvisor.set(t.advisorId, a);
+  }
+  const rows = [...byAdvisor.values()]
+    .map((a) => ({ advisorName: a.advisorName, customers: a.customers.size, txns: a.txns, revenue: round2(a.revenue), commission: round2(a.commission) }))
+    .sort((a, b) => b.commission - a.commission);
+  return {
+    key: "referral-by-advisor",
+    title: "Referral Commission by Advisor",
+    subtitle: "SmartPlan referral subscriptions per advisor — customers subscribed, revenue and commission",
+    dateRange: true,
+    columns: [
+      { key: "advisorName", label: "Advisor", type: "text" },
+      { key: "customers", label: "Customers Subscribed", type: "number" },
+      { key: "txns", label: "Transactions", type: "number" },
+      { key: "revenue", label: "Revenue", type: "currency" },
+      { key: "commission", label: "Commission", type: "currency" },
+    ],
+    rows,
+    totals: {
+      advisorName: `${rows.length} advisors`,
+      customers: rows.reduce((s, r) => s + r.customers, 0),
+      txns: rows.reduce((s, r) => s + r.txns, 0),
+      revenue: round2(rows.reduce((s, r) => s + r.revenue, 0)),
+      commission: round2(rows.reduce((s, r) => s + r.commission, 0)),
     },
     generatedAt: "",
   };
@@ -441,6 +538,8 @@ export async function buildReport(orgId: string, key: string, from: string, to: 
       return advisorPerformance(orgId, from, to);
     case "commission-by-advisor":
       return commissionByAdvisor(orgId, from, to);
+    case "referral-by-advisor":
+      return referralByAdvisor(orgId, from, to);
     case "sales-by-state":
       return salesByKey(orgId, from, to, "state");
     case "sales-by-product":

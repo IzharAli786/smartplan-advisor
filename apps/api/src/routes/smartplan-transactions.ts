@@ -52,6 +52,8 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
         occurredAt: input.occurred_at ?? new Date(),
         amount: String(input.amount),
         product: input.product ?? null,
+        companyName: input.company_name ?? null,
+        companyNameNormalized: input.company_name ? normalizeCompanyName(input.company_name) : null,
         status: input.status,
         source: "stripe",
       })

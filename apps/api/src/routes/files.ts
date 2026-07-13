@@ -7,8 +7,22 @@ import { forbidden, notFound } from "../lib/errors.js";
  * storage keys are never usable without a valid signature. Bytes come from Postgres.
  */
 export async function registerFileRoutes(app: FastifyInstance) {
-  app.get("/files/:key", async (req, reply) => {
-    const { key } = req.params as { key: string };
+  // Wildcard (not ":key") because storage keys contain "/" (e.g. avatars/<uuid>.png).
+  // Behind IIS/ARR an encoded %2F is decoded to a real "/" before it reaches us, so a
+  // single-segment :key param would 404 on the multi-segment path. The wildcard matches
+  // the whole remainder; we decode each segment to recover the exact signed key.
+  app.get("/files/*", async (req, reply) => {
+    const raw = (req.params as Record<string, string>)["*"] ?? "";
+    const key = raw
+      .split("/")
+      .map((seg) => {
+        try {
+          return decodeURIComponent(seg);
+        } catch {
+          return seg;
+        }
+      })
+      .join("/");
     const { exp, sig } = req.query as { exp?: string; sig?: string };
     if (!exp || !sig || !storage.verify(key, Number(exp), sig)) throw forbidden("Invalid or expired link");
 

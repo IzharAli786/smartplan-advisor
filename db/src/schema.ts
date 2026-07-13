@@ -504,6 +504,10 @@ export const smartplanTransactions = pgTable("smartplan_transactions", {
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   amount: numeric("amount").notNull().default("0"),
   product: text("product"),
+  // The referred customer this payment came from — so the super-admin reports can
+  // show WHICH customer subscribed under each advisor and count distinct subscribers.
+  companyName: text("company_name"),
+  companyNameNormalized: text("company_name_normalized"),
   status: text("status").notNull().default("active"),
   source: text("source").notNull().default("manual"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

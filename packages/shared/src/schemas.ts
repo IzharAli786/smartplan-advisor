@@ -102,6 +102,9 @@ export type SmartPlanTxnInput = z.infer<typeof smartPlanTxnSchema>;
 /** Normalized payload a Stripe webhook adapter posts to /ingest (source = stripe). */
 export const smartPlanTxnIngestSchema = smartPlanTxnSchema.extend({
   stripe_transaction_id: z.string().trim().min(1).max(120),
+  // The referred customer's company name — lets the super-admin reports show
+  // WHICH customer subscribed under each advisor and count distinct subscribers.
+  company_name: z.string().trim().max(200).optional().or(z.literal("").transform(() => undefined)),
 });
 
 /**
