@@ -235,9 +235,24 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
     }
 
     // Create an invited advisor account — mirrors POST /api/users for the
-    // advisor role. Advise is single-org; new accounts join the oldest org.
-    const [org] = await db.select({ id: organizations.id }).from(organizations).orderBy(asc(organizations.createdAt)).limit(1);
-    if (!org) throw notFound("No organization exists in Advise yet");
+    // advisor role. Org resolution: join the org of the most recently created
+    // ACTIVE super admin — that's the org actually being operated. (Databases
+    // that went through setup experiments can hold several orgs; "oldest org"
+    // once filed synced advisors into an abandoned seed org where the real
+    // admin could never see them.) Fallback: oldest org.
+    const [adminOrg] = await db
+      .select({ orgId: users.orgId })
+      .from(users)
+      .where(and(eq(users.role, "super_admin"), eq(users.active, true)))
+      .orderBy(desc(users.createdAt))
+      .limit(1);
+    let syncOrgId = adminOrg?.orgId ?? null;
+    if (!syncOrgId) {
+      const [org] = await db.select({ id: organizations.id }).from(organizations).orderBy(asc(organizations.createdAt)).limit(1);
+      syncOrgId = org?.id ?? null;
+    }
+    if (!syncOrgId) throw notFound("No organization exists in Advise yet");
+    const org = { id: syncOrgId };
 
     const rate = input.commission_rate ?? 15;
     const stateCode = usStateCode(input.state);
