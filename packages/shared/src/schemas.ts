@@ -141,6 +141,11 @@ export const smartPlanAdvisorSyncSchema = z.object({
   referred_by: z.string().trim().max(160).optional().or(z.literal("").transform(() => undefined)),
   enrolled_date: z.coerce.date().optional(),
   active: z.boolean().optional(),
+  /** When true, SmartPlan is asking Advise to (re)send the set-password invite
+   *  email for a not-yet-activated advisor — a brand-new account, or an existing
+   *  one that hasn't set a password. Advise owns the token + the email; SmartPlan
+   *  only requests it and reports the `invited` result back to the eco-admin. */
+  request_invite: z.boolean().optional(),
 });
 export type SmartPlanAdvisorSyncInput = z.infer<typeof smartPlanAdvisorSyncSchema>;
 

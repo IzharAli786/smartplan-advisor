@@ -179,10 +179,10 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
     // IDENTITY-FIRST lookup: when SmartPlan already holds a link, match by
     // user id — so an email correction updates THE SAME account instead of
     // spawning a duplicate. A stale/unknown id falls back to email matching.
-    let existing: { id: string; role: string; active: boolean; email: string } | undefined;
+    let existing: { id: string; role: string; active: boolean; email: string; passwordHash: string | null } | undefined;
     if (input.advise_user_id) {
       const [byId] = await db
-        .select({ id: users.id, role: users.role, active: users.active, email: users.email })
+        .select({ id: users.id, role: users.role, active: users.active, email: users.email, passwordHash: users.passwordHash })
         .from(users)
         .where(eq(users.id, input.advise_user_id))
         .limit(1);
@@ -190,7 +190,7 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
     }
     if (!existing) {
       const [byEmail] = await db
-        .select({ id: users.id, role: users.role, active: users.active, email: users.email })
+        .select({ id: users.id, role: users.role, active: users.active, email: users.email, passwordHash: users.passwordHash })
         .from(users)
         .where(dsql`lower(${users.email}) = lower(${input.email})`)
         .limit(1);
@@ -231,7 +231,19 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
         if (!input.active) patch.sessionVersion = dsql`${users.sessionVersion} + 1`;
       }
       await db.update(users).set(patch).where(eq(users.id, existing.id));
-      return { user_id: existing.id, created: false };
+      // Re-send the set-password invite when SmartPlan's eco-admin asks AND the
+      // advisor hasn't set a password yet. An already-active advisor is never
+      // re-invited (that's the safeguard against resetting a live account).
+      let invited = false;
+      if (input.request_invite && !existing.passwordHash) {
+        try {
+          await issueInvite(existing.id, input.email, input.full_name);
+          invited = true;
+        } catch (err) {
+          req.log.error({ err }, "advisor-sync: re-invite email failed");
+        }
+      }
+      return { user_id: existing.id, created: false, invited };
     }
 
     // Create an invited advisor account — mirrors POST /api/users for the
@@ -285,21 +297,24 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
         .where(dsql`lower(${users.email}) = lower(${input.email})`)
         .limit(1);
       if (!winner || winner.role !== "advisor") throw badRequest("That email belongs to a non-advisor Advise account", "email_reserved");
-      return { user_id: winner.id, created: false };
+      return { user_id: winner.id, created: false, invited: false };
     }
 
     // Seed the effective-dated commission history, like the normal create flow.
     await recordRateChange(org.id, created.id, rate, toDateStr(input.enrolled_date) ?? undefined);
 
     // Send the set-password invite. A mailer hiccup must not fail the sync —
-    // the account exists; the invite can be re-sent from the Advise UI.
+    // the account exists; the invite can be re-sent (SmartPlan resend or the
+    // Advise UI). `invited` tells SmartPlan whether the email actually went out.
+    let invited = false;
     try {
       await issueInvite(created.id, created.email, created.fullName);
+      invited = true;
     } catch (err) {
       req.log.error({ err }, "advisor-sync: invite email failed (account created)");
     }
 
-    return { user_id: created.id, created: true };
+    return { user_id: created.id, created: true, invited };
   });
 
   // ── Session routes (advisor/manager UI) — encapsulated so the authenticate
