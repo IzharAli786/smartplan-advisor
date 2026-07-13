@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { and, desc, eq, gte, ilike, lte, or } from "drizzle-orm";
-import { db, smartplanTransactions, opportunities, users } from "@smart-crm/db";
+import { and, asc, desc, eq, gte, ilike, lte, ne, or, sql as dsql } from "drizzle-orm";
+import { db, smartplanTransactions, opportunities, organizations, users } from "@smart-crm/db";
 import {
   smartPlanTxnSchema,
   smartPlanTxnIngestSchema,
   smartPlanActivationSchema,
+  smartPlanAdvisorSyncSchema,
   isManagerial,
   normalizeCompanyName,
   normalizeEmail,
@@ -18,6 +19,8 @@ import { requireUser, requireManagerial } from "../auth/guards.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { getStage, getInitialStageKey } from "../services/stages.js";
 import { logActivity } from "../services/activity.js";
+import { recordRateChange } from "../services/commission.js";
+import { issueInvite } from "./users.js";
 import { env } from "../env.js";
 
 /** Shared-secret guard for the two server-to-server endpoints below. */
@@ -162,6 +165,126 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
     });
 
     return { opportunity_id: opp.id, deduped: false };
+  });
+
+  // Advisor sync: SmartPlan's Eco Admin posts here when a Smart Advisor
+  // (referral partner) is created or edited. Upserts a REAL Advise advisor
+  // account by email so the roster stays in sync, and returns the user's UUID
+  // — SmartPlan stores it as the commission-routing link. Idempotent.
+  app.post("/advisor-sync", async (req) => {
+    requireIngestSecret(req.headers as Record<string, unknown>);
+    const input = parse(smartPlanAdvisorSyncSchema, req.body);
+    const toDateStr = (d?: Date) => (d ? d.toISOString().slice(0, 10) : null);
+
+    // IDENTITY-FIRST lookup: when SmartPlan already holds a link, match by
+    // user id — so an email correction updates THE SAME account instead of
+    // spawning a duplicate. A stale/unknown id falls back to email matching.
+    let existing: { id: string; role: string; active: boolean; email: string } | undefined;
+    if (input.advise_user_id) {
+      const [byId] = await db
+        .select({ id: users.id, role: users.role, active: users.active, email: users.email })
+        .from(users)
+        .where(eq(users.id, input.advise_user_id))
+        .limit(1);
+      if (byId) existing = byId;
+    }
+    if (!existing) {
+      const [byEmail] = await db
+        .select({ id: users.id, role: users.role, active: users.active, email: users.email })
+        .from(users)
+        .where(dsql`lower(${users.email}) = lower(${input.email})`)
+        .limit(1);
+      if (byEmail) existing = byEmail;
+    }
+
+    if (existing) {
+      // NEVER let a sync touch a manager/super-admin account: a Smart Advisor
+      // created in SmartPlan with (say) Tom's email must not rename or
+      // deactivate him. Only advisor-role accounts are sync-managed.
+      if (existing.role !== "advisor") {
+        throw badRequest("That email belongs to a non-advisor Advise account", "email_reserved");
+      }
+      // Refresh profile fields only. Role, password, and the commission rate
+      // stay Advise-managed (rate changes have effective-dating rules the
+      // manager controls in Advise — a sync must not silently rewrite money).
+      const patch: Record<string, unknown> = {
+        fullName: input.full_name,
+        updatedAt: new Date(),
+      };
+      // Email change (id-matched): keep the roster unique.
+      if (existing.email.toLowerCase() !== input.email.toLowerCase()) {
+        const [dupe] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(and(dsql`lower(${users.email}) = lower(${input.email})`, ne(users.id, existing.id)))
+          .limit(1);
+        if (dupe) throw badRequest("That email is already used by another Advise account", "email_taken");
+        patch.email = input.email;
+      }
+      if (input.phone !== undefined) patch.phone = input.phone;
+      if (input.referral_link !== undefined) patch.referralLink = input.referral_link;
+      if (input.referred_by !== undefined) patch.referredBy = input.referred_by;
+      if (input.enrolled_date !== undefined) patch.enrolledDate = toDateStr(input.enrolled_date);
+      if (input.active !== undefined && input.active !== existing.active) {
+        patch.active = input.active;
+        // Deactivation revokes sessions, same as the managerial PATCH.
+        if (!input.active) patch.sessionVersion = dsql`${users.sessionVersion} + 1`;
+      }
+      await db.update(users).set(patch).where(eq(users.id, existing.id));
+      return { user_id: existing.id, created: false };
+    }
+
+    // Create an invited advisor account — mirrors POST /api/users for the
+    // advisor role. Advise is single-org; new accounts join the oldest org.
+    const [org] = await db.select({ id: organizations.id }).from(organizations).orderBy(asc(organizations.createdAt)).limit(1);
+    if (!org) throw notFound("No organization exists in Advise yet");
+
+    const rate = input.commission_rate ?? 15;
+    const stateCode = usStateCode(input.state);
+    // onConflictDoNothing + re-select: the users_email_unique index backstops a
+    // concurrent double-sync for the same new email (e.g. double-click Create).
+    const [created] = await db
+      .insert(users)
+      .values({
+        role: "advisor",
+        orgId: org.id,
+        fullName: input.full_name,
+        email: input.email,
+        phone: input.phone ?? null,
+        referralLink: input.referral_link ?? null,
+        enrolledDate: toDateStr(input.enrolled_date),
+        referredBy: input.referred_by ?? null,
+        statesCovered: stateCode ? [stateCode] : [],
+        currentCommissionRate: String(rate),
+        active: input.active ?? true,
+        invitedAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning({ id: users.id, email: users.email, fullName: users.fullName });
+
+    if (!created) {
+      // Lost a concurrent race — return the row the winner created.
+      const [winner] = await db
+        .select({ id: users.id, role: users.role })
+        .from(users)
+        .where(dsql`lower(${users.email}) = lower(${input.email})`)
+        .limit(1);
+      if (!winner || winner.role !== "advisor") throw badRequest("That email belongs to a non-advisor Advise account", "email_reserved");
+      return { user_id: winner.id, created: false };
+    }
+
+    // Seed the effective-dated commission history, like the normal create flow.
+    await recordRateChange(org.id, created.id, rate, toDateStr(input.enrolled_date) ?? undefined);
+
+    // Send the set-password invite. A mailer hiccup must not fail the sync —
+    // the account exists; the invite can be re-sent from the Advise UI.
+    try {
+      await issueInvite(created.id, created.email, created.fullName);
+    } catch (err) {
+      req.log.error({ err }, "advisor-sync: invite email failed (account created)");
+    }
+
+    return { user_id: created.id, created: true };
   });
 
   // ── Session routes (advisor/manager UI) — encapsulated so the authenticate

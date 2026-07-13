@@ -40,7 +40,9 @@ const listColumns = {
 
 const toDateStr = (d?: Date) => (d ? d.toISOString().slice(0, 10) : null);
 
-async function issueInvite(userId: string, email: string, name: string) {
+/** Create a 7-day set-password invite token + send the invite email.
+ * Exported for the SmartPlan advisor-sync ingest, which provisions accounts. */
+export async function issueInvite(userId: string, email: string, name: string) {
   const { raw, hash } = generateToken();
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await db.insert(userTokens).values({ userId, tokenHash: hash, purpose: "invite", expiresAt: expires });

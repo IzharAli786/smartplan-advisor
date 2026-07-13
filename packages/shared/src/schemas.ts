@@ -121,6 +121,29 @@ export const smartPlanActivationSchema = z.object({
 });
 export type SmartPlanActivationInput = z.infer<typeof smartPlanActivationSchema>;
 
+/**
+ * Advisor-sync payload SmartPlan posts to /advisor-sync when an Eco Admin
+ * creates or updates a Smart Advisor (referral partner). Upserts a real
+ * Advise advisor account by email — so the roster stays in sync — and returns
+ * the user's UUID, which SmartPlan stores as its commission-routing link.
+ */
+export const smartPlanAdvisorSyncSchema = z.object({
+  /** The already-linked Advise user UUID, when SmartPlan has one. Lets the
+   * upsert match by IDENTITY first, so correcting an advisor's email updates
+   * the same account instead of creating a duplicate. */
+  advise_user_id: z.string().uuid().optional(),
+  email: z.string().trim().email("Enter a valid email").max(200),
+  full_name: z.string().trim().min(1).max(160),
+  phone: z.string().trim().max(40).optional().or(z.literal("").transform(() => undefined)),
+  state: z.string().trim().max(80).optional().or(z.literal("").transform(() => undefined)),
+  commission_rate: z.coerce.number().min(0).max(100).optional(),
+  referral_link: z.string().trim().max(500).optional().or(z.literal("").transform(() => undefined)),
+  referred_by: z.string().trim().max(160).optional().or(z.literal("").transform(() => undefined)),
+  enrolled_date: z.coerce.date().optional(),
+  active: z.boolean().optional(),
+});
+export type SmartPlanAdvisorSyncInput = z.infer<typeof smartPlanAdvisorSyncSchema>;
+
 /** ── Performance: advisor setup, activities, badges, high-fives ── */
 export const advisorSetupSchema = z.object({
   days_to_sell: z.coerce.number().int().min(1).max(366).default(250),

@@ -145,6 +145,16 @@ export default function UsersPage({
               <div className="muted" style={{ fontSize: ".78rem", marginTop: 6 }}>
                 {ROLE_LABEL[u.role]} · {u.statesCovered.join(", ") || "—"}
                 {u.currentCommissionRate != null && u.role === "advisor" ? ` · ${u.currentCommissionRate}% comm.` : ""}
+                {" · "}
+                <button
+                  type="button"
+                  className="btn small ghost"
+                  style={{ padding: "0 .35rem", fontSize: ".72rem", verticalAlign: "baseline" }}
+                  title="Copy this user's Advise ID (for linking from the SmartPlan Eco Admin)"
+                  onClick={() => navigator.clipboard.writeText(u.id)}
+                >
+                  Copy Advise ID
+                </button>
               </div>
               {me && canEditUser(me.role, u.role) && (
                 <div className="row" style={{ gap: ".5rem", marginTop: ".75rem", justifyContent: "flex-start" }}>
