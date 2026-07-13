@@ -13,6 +13,7 @@ import { userTokens } from "@smart-crm/db";
 import { mailer } from "../lib/mailer.js";
 import { env } from "../env.js";
 import { recordRateChange, getHistory } from "../services/commission.js";
+import { syncSuperAdminToSmartPlan } from "../services/smartplan-sync.js";
 
 const listColumns = {
   id: users.id,
@@ -214,6 +215,11 @@ export async function registerUserRoutes(app: FastifyInstance) {
     if (rateChangedTo !== null) {
       await recordRateChange(viewer.orgId, id, rateChangedTo, toDateStr(input.commission_effective_from) ?? undefined);
     }
+
+    // Super-admin edits (name/email/password/active) also update their
+    // SmartPlan Eco-Admin mirror. Fire-and-forget; service re-checks role.
+    if (target.role === "super_admin") void syncSuperAdminToSmartPlan(id);
+
     return { user: serializeUser(updated as UserRow, viewer.role) };
   });
 
