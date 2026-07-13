@@ -15,7 +15,7 @@ export default function AdminMenuPage() {
   const { user } = useAuth();
   return (
     <div>
-      <PageHead title="Admin" subtitle={`${user?.fullName} · ${user?.role === "super_admin" ? "Super Admin" : "Manager"}`} />
+      <PageHead title="Admin" subtitle={`${user?.fullName} · ${user?.role === "super_admin" ? "Super Admin" : "Advisor"}`} />
       {ITEMS.map((it) => (
         <Link key={it.to} to={it.to} style={{ color: "inherit" }}>
           <Card onClick={() => {}}>

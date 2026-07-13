@@ -20,7 +20,9 @@ export const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 });
 
 /** Enums mirror db/migrations/0001_init.sql. */
-export const userRole = pgEnum("user_role", ["super_admin", "manager", "advisor"]);
+// The DB enum keeps its legacy "manager" value (Postgres can't drop enum values
+// and no rows use it) but the app only ever assigns super_admin / advisor.
+export const userRole = pgEnum("user_role", ["super_admin", "advisor"]);
 export const tokenPurpose = pgEnum("token_purpose", ["invite", "reset"]);
 export const opportunitySource = pgEnum("opportunity_source", ["typed", "voice", "enriched", "lead", "referral"]);
 export const collateralType = pgEnum("collateral_type", ["pdf", "slides", "image", "video", "link"]);

@@ -178,7 +178,7 @@ export async function registerLeadRoutes(app: FastifyInstance) {
   // GET /api/leads?advisorId=&status=&q= — managerial sees all; advisors see their own.
   app.get("/", async (req) => {
     const user = requireUser(req);
-    const managerial = user.role === "manager" || user.role === "super_admin";
+    const managerial = user.role === "super_admin";
     const query = req.query as { advisorId?: string; status?: string; q?: string };
 
     const conds = [eq(leads.orgId, user.orgId)];
@@ -216,7 +216,7 @@ export async function registerLeadRoutes(app: FastifyInstance) {
   // PATCH /api/leads/:id — status / notes; managers may also reassign.
   app.patch("/:id", async (req) => {
     const user = requireUser(req);
-    const managerial = user.role === "manager" || user.role === "super_admin";
+    const managerial = user.role === "super_admin";
     const { id } = req.params as { id: string };
     const input = parse(leadUpdateSchema, req.body);
 
@@ -254,7 +254,7 @@ export async function registerLeadRoutes(app: FastifyInstance) {
   // POST /api/leads/:id/convert — turn a lead into a pipeline opportunity for its advisor.
   app.post("/:id/convert", async (req) => {
     const user = requireUser(req);
-    const managerial = user.role === "manager" || user.role === "super_admin";
+    const managerial = user.role === "super_admin";
     const { id } = req.params as { id: string };
     const input = parse(leadConvertSchema, req.body);
 

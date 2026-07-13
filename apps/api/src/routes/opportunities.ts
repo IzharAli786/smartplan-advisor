@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { db, opportunities, users, claimRequests, statusStages, products, activities, opportunityProducts, journeyStages, opportunityJourney } from "@smart-crm/db";
 import {
   opportunityDraftSchema,
@@ -36,7 +36,7 @@ async function notifyManagers(orgId: string, message: string, relatedId: string)
   const managers = await db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.orgId, orgId), eq(users.active, true), inArray(users.role, ["manager", "super_admin"])));
+    .where(and(eq(users.orgId, orgId), eq(users.active, true), eq(users.role, "super_admin")));
   await Promise.all(managers.map((m) => notify({ orgId, userId: m.id, type: "claim_request", message, relatedId })));
 }
 

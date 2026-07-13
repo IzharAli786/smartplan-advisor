@@ -137,7 +137,7 @@ export default function Layout() {
           </div>
           <div className="who">
             <div className="name">{user?.fullName}</div>
-            <div className="role">{user?.role === "super_admin" ? "Super Admin" : user?.role === "manager" ? "Manager" : "Advisor"}</div>
+            <div className="role">{user?.role === "super_admin" ? "Super Admin" : "Advisor"}</div>
           </div>
           <div className="sidebar-actions">
             <button

@@ -27,9 +27,6 @@ export const env = {
   mailFrom: process.env.MAIL_FROM || process.env.RESEND_FROM_EMAIL || "SmartPlan CRM <no-reply@smartplan.software>",
   resendApiKey: process.env.RESEND_API_KEY ?? "",
   smartplanIngestSecret: process.env.SMARTPLAN_INGEST_SECRET ?? "",
-  // Base URL of the SmartPlan app — used to mirror super-admin logins into its
-  // Eco-Admin (same shared secret as the inbound ingest, other direction).
-  smartplanAppUrl: (process.env.SMARTPLAN_APP_URL ?? "https://dev.smartplan.software").replace(/\/+$/, ""),
   storageDriver: process.env.STORAGE_DRIVER ?? "dev",
   storageLocalDir: process.env.STORAGE_LOCAL_DIR ?? "storage-dev",
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",

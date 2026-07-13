@@ -10,7 +10,6 @@ import { signSession } from "../auth/jwt.js";
 import { authenticate, setSessionCookie, clearSessionCookie } from "../auth/context.js";
 import { serializeUser, type UserRow } from "../lib/serialize.js";
 import { mailer } from "../lib/mailer.js";
-import { syncSuperAdminToSmartPlan } from "../services/smartplan-sync.js";
 import { env } from "../env.js";
 
 const selfColumns = {
@@ -101,10 +100,6 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     const token = signSession({ sub: row.id, role: row.role, sv: row.sessionVersion });
     setSessionCookie(reply, token);
 
-    // Keep the SmartPlan Eco-Admin mirror of this super admin fresh (and
-    // backfill admins that predate the mirror). Fire-and-forget.
-    if (row.role === "super_admin") void syncSuperAdminToSmartPlan(row.id);
-
     return { user: serializeUser(row as UserRow, row.role), org: await orgPrefs(row.orgId) };
   });
 
@@ -141,11 +136,6 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         .where(eq(users.id, tok.userId));
       await tx.update(userTokens).set({ usedAt: new Date() }).where(eq(userTokens.id, tok.id));
     });
-
-    // If this user is a super admin, mirror the new credentials into the
-    // SmartPlan Eco-Admin so the same login works there. Fire-and-forget;
-    // the service itself checks the role.
-    void syncSuperAdminToSmartPlan(tok.userId);
 
     return { ok: true };
   });

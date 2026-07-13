@@ -8,7 +8,7 @@ import { Icon } from "../components/Icon.tsx";
 import { PhoneInput } from "../components/PhoneInput.tsx";
 import type { CurrentUser } from "../api/types.ts";
 
-const ROLE_LABEL: Record<string, string> = { super_admin: "Super Admin", manager: "Manager", advisor: "Advisor" };
+const ROLE_LABEL: Record<string, string> = { super_admin: "Super Admin", advisor: "Advisor" };
 
 export default function UsersPage({
   title = "Smart Advisors",
@@ -31,12 +31,12 @@ export default function UsersPage({
   });
 
   // This page is one role slice of the shared roster: /users shows advisors,
-  // /super-admins shows managers + super admins. The API returns everyone;
-  // we filter here so no role is ever listed on both pages (or on neither).
+  // /super-admins shows super admins. The API returns everyone; we filter here
+  // so no role is ever listed on both pages (or on neither).
   const visibleUsers = (data?.users ?? []).filter((u) => roles.includes(u.role));
   // Empty-state copy must reflect the slice, not the whole org — otherwise an
   // org with super admins but no advisors reads "No users yet" on /users.
-  const emptyTitle = roles.includes("advisor") ? "No advisors yet" : "No managers or super admins yet";
+  const emptyTitle = roles.includes("advisor") ? "No advisors yet" : "No super admins yet";
 
   async function createUser(e: FormEvent) {
     e.preventDefault();
