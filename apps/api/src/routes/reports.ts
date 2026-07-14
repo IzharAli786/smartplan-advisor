@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { sql as dsql } from "drizzle-orm";
 import { db } from "@smart-crm/db";
 import { authenticate } from "../auth/context.js";
-import { requireManagerial } from "../auth/guards.js";
+import { requireManagerial, requireUser } from "../auth/guards.js";
 import { getHistoryFor, resolveRate } from "../services/commission.js";
 import { REPORT_CATALOG, buildReport } from "../services/reports-data.js";
 import { notFound } from "../lib/errors.js";
@@ -51,6 +51,54 @@ export async function registerReportRoutes(app: FastifyInstance) {
     if (!report) throw notFound("Unknown report");
     report.generatedAt = new Date().toISOString();
     return { report };
+  });
+
+  // GET /api/reports/my-referrals?from=&to= — the LOGGED-IN advisor's OWN referral
+  // subscriptions + commission (Requirement B: advisors see their own converted
+  // customers and commission). Advisor-self: the query is FORCED to req.user.id, so
+  // any authenticated user only ever sees their own numbers — never another advisor's.
+  app.get("/my-referrals", async (req) => {
+    const user = requireUser(req);
+    const { from, to } = parseRange(req.query as { from?: string; to?: string });
+    const rows = await db.execute<{
+      company: string | null;
+      company_normalized: string | null;
+      occurred_at: string;
+      product: string | null;
+      amount: string;
+      status: string;
+    }>(dsql`
+      SELECT t.company_name AS company, t.company_name_normalized AS company_normalized,
+             t.occurred_at, t.product, t.amount, t.status
+      FROM smartplan_transactions t
+      WHERE t.advisor_id = ${user.id}::uuid AND t.org_id = ${user.orgId}::uuid
+        AND t.occurred_at >= ${from}::timestamptz AND t.occurred_at <= ${to}::timestamptz
+      ORDER BY t.occurred_at DESC
+    `);
+    const history = await getHistoryFor([user.id]);
+    const customers = new Set<string>();
+    let revenue = 0;
+    let commission = 0;
+    const data = rows.map((r) => {
+      const amount = Math.round(Number(r.amount) * 100) / 100;
+      const rate = resolveRate(history.get(user.id), new Date(r.occurred_at)) ?? 0;
+      const c = Math.round(((amount * rate) / 100) * 100) / 100;
+      revenue += amount;
+      commission += c;
+      // A customer counts as "subscribed" once they have a positive (paid) row.
+      const norm = r.company_normalized ?? (r.company ? r.company.toLowerCase() : "");
+      if (amount > 0 && norm) customers.add(norm);
+      return { company: r.company ?? "—", occurredAt: r.occurred_at, product: r.product ?? "—", amount, rate, commission: c, status: r.status };
+    });
+    return {
+      rows: data,
+      totals: {
+        customers: customers.size,
+        transactions: data.length,
+        revenue: Math.round(revenue * 100) / 100,
+        commission: Math.round(commission * 100) / 100,
+      },
+    };
   });
 
   // GET /api/reports/commission-statement/:advisorId?from=&to= — one advisor's statement.

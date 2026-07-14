@@ -32,6 +32,7 @@ import ImportPipelinePage from "./pages/ImportPipelinePage.tsx";
 import ImportLeadsPage from "./pages/ImportLeadsPage.tsx";
 import LeadsPage from "./pages/LeadsPage.tsx";
 import PerformancePage from "./pages/PerformancePage.tsx";
+import MyEarningsPage from "./pages/MyEarningsPage.tsx";
 
 /** Index route: advisors land on Today; managers on the Dashboard. */
 function HomeRoute() {
