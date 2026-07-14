@@ -69,6 +69,7 @@ export default function App() {
         <Route path="/address-book" element={<AddressBookPage />} />
         <Route path="/leads" element={<LeadsPage />} />
         <Route path="/performance" element={<PerformancePage />} />
+        <Route path="/my-earnings" element={<MyEarningsPage />} />
 
         {/* Managerial */}
         <Route path="/dashboard" element={<RequireManager><DashboardPage /></RequireManager>} />

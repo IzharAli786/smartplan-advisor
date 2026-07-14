@@ -90,6 +90,7 @@ export default function Layout() {
         { to: "/pipeline", label: "My Pipeline", icon: "pipeline" },
         { to: "/leads", label: "My Leads", icon: "building" },
         { to: "/performance", label: "Performance", icon: "trophy" },
+        { to: "/my-earnings", label: "My Earnings", icon: "commission" },
         { to: "/new", label: "New Opportunity", icon: "plus" },
         { to: "/quotes", label: "Quotes", icon: "file-text" },
         { to: "/address-book", label: "Address Book", icon: "contact" },
