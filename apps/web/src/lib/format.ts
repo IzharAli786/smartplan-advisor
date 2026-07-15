@@ -23,7 +23,10 @@ export function currentCurrencySymbol(): string {
 
 export function money(v: number | null | undefined): string {
   if (v == null) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(v);
+  // Show exact cents when the amount has them — commission like $14.85 must
+  // never round to $15. Whole-dollar amounts stay clean (no trailing ".00").
+  const digits = Number.isInteger(v) ? 0 : 2;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(v);
 }
 
 /** Short money for tight spaces (chart labels): "$12.5k", "£8k". */

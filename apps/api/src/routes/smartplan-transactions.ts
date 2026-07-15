@@ -6,6 +6,7 @@ import {
   smartPlanTxnIngestSchema,
   smartPlanActivationSchema,
   smartPlanAdvisorSyncSchema,
+  smartPlanSubscriptionStatusSchema,
   isManagerial,
   normalizeCompanyName,
   normalizeEmail,
@@ -17,7 +18,8 @@ import { parse } from "../lib/validate.js";
 import { authenticate } from "../auth/context.js";
 import { requireUser, requireManagerial } from "../auth/guards.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
-import { getStage, getInitialStageKey } from "../services/stages.js";
+import { getStage, getInitialStageKey, getConversionStage } from "../services/stages.js";
+import { ensureConversion } from "../services/convert.js";
 import { logActivity } from "../services/activity.js";
 import { recordRateChange } from "../services/commission.js";
 import { issueInvite } from "./users.js";
@@ -317,6 +319,57 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
     }
 
     return { user_id: created.id, created: true, invited };
+  });
+
+  // Subscription lifecycle: SmartPlan posts here when a referred customer's
+  // subscription starts PAYING ("subscribed") or is cancelled ("canceled").
+  // "subscribed" moves the advisor's referral opportunity to the org's
+  // conversion (Won) stage — exactly like a manual win, including the
+  // idempotent conversion record (deal value stays the opportunity's own,
+  // null → $0: the real money lives in smartplan_transactions, so the
+  // pipeline win never double-counts commission). "canceled" only LOGS the
+  // churn on the opportunity — the win stays in history (they did convert).
+  app.post("/subscription-status", async (req) => {
+    requireIngestSecret(req.headers as Record<string, unknown>);
+    const input = parse(smartPlanSubscriptionStatusSchema, req.body);
+
+    const [advisor] = await db
+      .select({ id: users.id, orgId: users.orgId })
+      .from(users)
+      .where(eq(users.id, input.advisor_id))
+      .limit(1);
+    if (!advisor) throw notFound("Advisor not found");
+
+    // Same dedupe key as /activation, so the lookup always finds the
+    // opportunity that activation created.
+    const companyNameNormalized = normalizeCompanyName(input.company_name) || input.company_name.trim().toLowerCase();
+    const [opp] = await db
+      .select({ id: opportunities.id, status: opportunities.status })
+      .from(opportunities)
+      .where(and(eq(opportunities.advisorId, advisor.id), eq(opportunities.companyNameNormalized, companyNameNormalized)))
+      .limit(1);
+    // No pipeline card yet (activation never landed) — nothing to update. The
+    // caller is fire-and-forget and pushes activation on its catch-up paths.
+    if (!opp) return { updated: false, reason: "opportunity_not_found" };
+
+    const now = new Date();
+    if (input.event === "canceled") {
+      await logActivity({ opportunityId: opp.id, advisorId: advisor.id, type: "system", subject: "SmartPlan subscription cancelled" });
+      await db.update(opportunities).set({ lastActivityAt: now, updatedAt: now }).where(eq(opportunities.id, opp.id));
+      return { updated: true, event: "canceled" };
+    }
+
+    // event === "subscribed" → move to the Won stage (idempotent).
+    const won = await getConversionStage(advisor.orgId);
+    if (!won) return { updated: false, reason: "no_conversion_stage" };
+    if (opp.status === won.key) return { updated: false, reason: "already_won" };
+    await db
+      .update(opportunities)
+      .set({ status: won.key, statusChangedAt: now, nextStep: null, nextStepDue: null, updatedAt: now, lastActivityAt: now })
+      .where(eq(opportunities.id, opp.id));
+    await ensureConversion(opp.id);
+    await logActivity({ opportunityId: opp.id, advisorId: advisor.id, type: "system", subject: "SmartPlan subscription activated — marked Won" });
+    return { updated: true, event: "subscribed", stage: won.key };
   });
 
   // ── Session routes (advisor/manager UI) — encapsulated so the authenticate

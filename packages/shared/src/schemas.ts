@@ -125,6 +125,19 @@ export const smartPlanActivationSchema = z.object({
 export type SmartPlanActivationInput = z.infer<typeof smartPlanActivationSchema>;
 
 /**
+ * Subscription lifecycle signal SmartPlan posts when a referred customer's
+ * subscription starts paying ("subscribed" → the referral opportunity is moved
+ * to the Won stage) or is cancelled ("canceled" → the churn is logged on the
+ * opportunity). Matched by advisor + normalized company name, like /activation.
+ */
+export const smartPlanSubscriptionStatusSchema = z.object({
+  advisor_id: z.string().uuid(),
+  company_name: z.string().trim().min(1).max(200),
+  event: z.enum(["subscribed", "canceled"]),
+});
+export type SmartPlanSubscriptionStatusInput = z.infer<typeof smartPlanSubscriptionStatusSchema>;
+
+/**
  * Advisor-sync payload SmartPlan posts to /advisor-sync when an Eco Admin
  * creates or updates a Smart Advisor (referral partner). Upserts a real
  * Advise advisor account by email — so the roster stays in sync — and returns

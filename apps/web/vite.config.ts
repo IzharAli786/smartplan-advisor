@@ -10,19 +10,38 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "icon.svg"],
+      includeAssets: [
+        "favicon.svg",
+        "icon.svg",
+        "apple-touch-icon.png",
+        "pwa-192x192.png",
+        "pwa-512x512.png",
+      ],
       manifest: {
+        // Stable identity so the browser recognises the same app across manifest edits.
+        id: "/",
         name: "Advise — Advisor CRM",
         short_name: "Advise",
         description: "Advisor CRM for Smart Advisors",
+        lang: "en",
+        dir: "ltr",
+        categories: ["business", "productivity"],
         theme_color: "#1e2a38",
         background_color: "#1e2a38",
         display: "standalone",
         orientation: "portrait",
         start_url: "/",
+        scope: "/",
         icons: [
+          // PNGs are what Android/Chrome installability and Lighthouse actually require
+          // (192 + 512); iOS uses the apple-touch-icon <link> in index.html. The SVG is a
+          // crisp any-size fallback for desktop taskbars.
+          { src: "pwa-192x192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          // Full-bleed square (safe-zone padded) so Android's adaptive mask never clips it.
+          { src: "pwa-192x192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+          { src: "pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
           { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
-          { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" },
         ],
       },
       workbox: {

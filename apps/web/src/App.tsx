@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext.tsx";
 import Layout from "./components/Layout.tsx";
+import InstallPrompt from "./components/InstallPrompt.tsx";
 import { RequireAuth, RequireManager, RequireSuperAdmin } from "./components/guards.tsx";
 
 import LoginPage from "./pages/LoginPage.tsx";
@@ -42,7 +43,9 @@ function HomeRoute() {
 
 export default function App() {
   return (
-    <Routes>
+    <>
+      <InstallPrompt />
+      <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/set-password" element={<SetPasswordPage />} />
@@ -93,6 +96,7 @@ export default function App() {
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </>
   );
 }

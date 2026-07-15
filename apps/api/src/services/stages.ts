@@ -23,6 +23,16 @@ export async function getStage(orgId: string, key: string): Promise<StageInfo | 
   return r ? { key: r.key, label: r.label, isConversion: r.isConversion, isTerminal: r.isTerminal } : null;
 }
 
+/** The org's active conversion ("won") stage, if one is configured. */
+export async function getConversionStage(orgId: string): Promise<StageInfo | null> {
+  const [r] = await db
+    .select()
+    .from(statusStages)
+    .where(and(eq(statusStages.orgId, orgId), eq(statusStages.isConversion, true), eq(statusStages.active, true)))
+    .limit(1);
+  return r ? { key: r.key, label: r.label, isConversion: r.isConversion, isTerminal: r.isTerminal } : null;
+}
+
 /** The default stage for a brand-new opportunity = lowest sort_order, active. */
 export async function getInitialStageKey(orgId: string): Promise<string> {
   const rows = await db.select().from(statusStages).where(eq(statusStages.orgId, orgId)).orderBy(statusStages.sortOrder);
