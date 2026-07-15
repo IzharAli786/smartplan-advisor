@@ -1,9 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Advise app icon: white "A" + teal dot on the navy brand square. -->
-  <rect width="512" height="512" rx="104" fill="#1e2a38" />
-  <g stroke="#ffffff" stroke-width="46" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <path d="M150 366 L238 150 L326 366" />
-    <path d="M190 288 L286 288" />
-  </g>
-  <circle cx="374" cy="352" r="34" fill="#00d9d9" />
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#1e2a38" rx="104"/><g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="46"><path d="M150 366 L238 150 L326 366"/><path d="M190 288 L286 288"/></g><circle cx="374" cy="352" r="34" fill="#00d9d9"/></svg>
