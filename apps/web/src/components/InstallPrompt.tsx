@@ -59,7 +59,11 @@ function isStandalone(): boolean {
 
 function isIosSafari(): boolean {
   const ua = window.navigator.userAgent;
-  const iOS = /iphone|ipad|ipod/i.test(ua);
+  // iPadOS 13+ Safari sends a desktop "Macintosh" UA by default, so also treat a
+  // touch-capable Mac as iOS. Real desktop Safari reports maxTouchPoints === 0.
+  const iOS =
+    /iphone|ipad|ipod/i.test(ua) ||
+    (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
   // Real Safari only — Chrome (CriOS), Firefox (FxiOS), Edge (EdgiOS) on iOS
   // can't add to the home screen, so instructions there would just mislead.
   const safari = /safari/i.test(ua) && !/crios|fxios|edgios/i.test(ua);
@@ -88,6 +92,9 @@ export default function InstallPrompt() {
 
     const sync = () => setDeferred(deferredEvent);
     subscribers.add(sync);
+    // Reconcile immediately: an event can land between the render-time snapshot
+    // and this subscription, and that notify() would fire into an empty Set.
+    sync();
 
     // iOS has no event to wait on — decide up front.
     if (isIosSafari()) setShowIosHint(true);
@@ -98,8 +105,17 @@ export default function InstallPrompt() {
   }, []);
 
   // Never overlay the customer-facing public quote page, and respect standalone/dismissal.
-  if (location.pathname.startsWith("/q/")) return null;
-  if (dismissed || isStandalone()) return null;
+  const hidden = location.pathname.startsWith("/q/") || dismissed || isStandalone();
+  const mode: "install" | "ios" | null = hidden ? null : deferred ? "install" : showIosHint ? "ios" : null;
+
+  // While the banner occupies the bottom of a phone screen, hide the FAB it would
+  // otherwise cover (the FAB lives in Layout, so coordinate via a body class).
+  useEffect(() => {
+    document.body.classList.toggle("has-install-banner", mode !== null);
+    return () => document.body.classList.remove("has-install-banner");
+  }, [mode]);
+
+  if (mode === null) return null;
 
   const dismiss = () => {
     setDismissed(true);
@@ -112,14 +128,20 @@ export default function InstallPrompt() {
 
   const install = async () => {
     if (!deferred) return;
-    await deferred.prompt();
-    await deferred.userChoice;
-    // A prompt event can only be used once, whatever the user chose.
+    // Capture and clear BEFORE awaiting: a prompt event may be used only once, so a
+    // double-tap must not re-enter and call prompt() twice (that throws).
+    const event = deferred;
     deferredEvent = null;
     setDeferred(null);
+    try {
+      await event.prompt();
+      await event.userChoice;
+    } catch {
+      /* user gesture lost / already consumed — nothing actionable */
+    }
   };
 
-  if (deferred) {
+  if (mode === "install") {
     return (
       <div className="install-banner" role="region" aria-label="Install Advise">
         <img className="install-icon" src="/pwa-192x192.png" alt="" width={40} height={40} />
@@ -139,7 +161,7 @@ export default function InstallPrompt() {
     );
   }
 
-  if (showIosHint) {
+  if (mode === "ios") {
     return (
       <div className="install-banner" role="region" aria-label="Install Advise">
         <img className="install-icon" src="/apple-touch-icon.png" alt="" width={40} height={40} />

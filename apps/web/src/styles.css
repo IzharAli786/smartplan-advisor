@@ -59,7 +59,7 @@ p { margin: 0 0 0.5rem; }
 .sidebar-user .btn.secondary:hover { background: var(--sidebar-hover); color: #fff; border-color: var(--sidebar-hover); }
 
 .content { flex: 1; min-width: 0; margin-left: var(--sidebar-width); display: flex; flex-direction: column; }
-.app-main { flex: 1; width: 100%; max-width: 1240px; margin: 0 auto; padding: 1.5rem calc(1.5rem + var(--safe-right)) calc(2rem + var(--safe-bottom)) calc(1.5rem + var(--safe-left)); }
+.app-main { flex: 1; width: 100%; max-width: 1240px; margin: 0 auto; padding: calc(1.5rem + var(--safe-top)) calc(1.5rem + var(--safe-right)) calc(2rem + var(--safe-bottom)) calc(1.5rem + var(--safe-left)); }
 
 .mobile-topbar { display: none; }
 .scrim { display: none; }
@@ -177,7 +177,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-muted); }
 /* ── Misc ─────────────────────────────────────────────────── */
 .empty-state { text-align: center; padding: 3rem 1rem; color: var(--color-text-muted); }
 .empty-state .empty-icon { width: 56px; height: 56px; border-radius: 50%; background: var(--color-surface-2); color: var(--color-text-muted); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 0.25rem; }
-.center-screen { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 1rem; background: var(--color-bg); }
+.center-screen { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: calc(1rem + var(--safe-top)) calc(1rem + var(--safe-right)) calc(1rem + var(--safe-bottom)) calc(1rem + var(--safe-left)); background: var(--color-bg); }
 .auth-card { width: 100%; max-width: 400px; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
 .error-banner { background: var(--alert-bg); color: var(--alert-text); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin-bottom: 0.85rem; border: 1px solid var(--alert-border); }
 .success-banner { background: var(--success-soft); color: var(--success-text); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin-bottom: 0.85rem; border: 1px solid #c6ead8; }
@@ -335,3 +335,6 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (min-width: 901px) {
   .install-banner { left: auto; right: 18px; transform: none; }
 }
+/* On phones the centered banner covers the FAB — hide it while the banner shows
+ * (InstallPrompt toggles this class) so the primary "+" action isn't blocked. */
+.has-install-banner .fab { display: none; }

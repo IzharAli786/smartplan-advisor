@@ -374,3 +374,14 @@ export const logActivitySchema = z.object({
   outcome: z.string().trim().max(60).optional().or(z.literal("").transform(() => undefined)),
 });
 export type LogActivityInput = z.infer<typeof logActivitySchema>;
+
+/** ── Feedback (forwarded to SmartPlan's central eco-admin inbox) ── */
+// Values mirror SmartPlan's feedback table exactly — the advisor API forwards
+// them verbatim and SmartPlan re-validates on its side.
+export const feedbackSchema = z.object({
+  title: z.string().trim().min(1, "Title is required").max(200),
+  description: z.string().trim().min(1, "Description is required").max(5000),
+  category: z.enum(["feature", "bug", "improvement"]).default("feature"),
+  priority: z.enum(["low", "medium", "high"]).default("medium"),
+});
+export type FeedbackInput = z.infer<typeof feedbackSchema>;

@@ -66,7 +66,14 @@ export default function PublicQuotePage() {
   }
 
   return (
-    <div style={{ background: "var(--color-bg)", minHeight: "100%", padding: "1.5rem 1rem" }}>
+    <div
+      style={{
+        background: "var(--color-bg)",
+        minHeight: "100%",
+        padding:
+          "calc(1.5rem + var(--safe-top)) calc(1rem + var(--safe-right)) calc(1.5rem + var(--safe-bottom)) calc(1rem + var(--safe-left))",
+      }}
+    >
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
         <div className="card" style={{ padding: "1.75rem" }}>
           {/* Brand header */}

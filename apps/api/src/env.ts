@@ -27,6 +27,10 @@ export const env = {
   mailFrom: process.env.MAIL_FROM || process.env.RESEND_FROM_EMAIL || "SmartPlan CRM <no-reply@smartplan.software>",
   resendApiKey: process.env.RESEND_API_KEY ?? "",
   smartplanIngestSecret: process.env.SMARTPLAN_INGEST_SECRET ?? "",
+  // Public origin of the SmartPlan app — used for outbound Advise→SmartPlan
+  // calls (advisor feedback forwarding). Auth reuses SMARTPLAN_INGEST_SECRET
+  // in the x-ingest-secret header (same shared value both directions).
+  smartplanAppUrl: (process.env.SMARTPLAN_APP_URL ?? "").replace(/\/+$/, ""),
   storageDriver: process.env.STORAGE_DRIVER ?? "dev",
   storageLocalDir: process.env.STORAGE_LOCAL_DIR ?? "storage-dev",
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
