@@ -122,6 +122,7 @@ export default function LibraryPage() {
                 Share
               </button>
               {isManager && <HideToggle c={c} reload={reload} />}
+              {isManager && <DeleteAction c={c} reload={reload} />}
             </div>
           </Card>
         ))
@@ -145,6 +146,36 @@ function HideToggle({ c, reload }: { c: Collateral; reload: () => void }) {
     <button className="btn small ghost" disabled={busy} onClick={toggle}>
       <Icon name={c.active ? "eye-off" : "eye"} size={15} />
       {c.active ? "Hide" : "Show"}
+    </button>
+  );
+}
+
+/** Managerial-only: permanently remove an item (and its uploaded file) from the library. */
+function DeleteAction({ c, reload }: { c: Collateral; reload: () => void }) {
+  const [busy, setBusy] = useState(false);
+  async function remove() {
+    const hosted = c.fileUrl && !c.externalUrl;
+    if (
+      !window.confirm(
+        `Delete “${c.title}”?${hosted ? " The uploaded file will be removed too." : ""}\n\n` +
+          `This can't be undone — use Hide instead if you only want to take it out of advisors' view.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api.delete(`/api/collateral/${c.id}`);
+      reload();
+    } catch (e) {
+      alert(e instanceof ApiError ? e.message : "Could not delete this item");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button className="btn small ghost" style={{ color: "var(--color-danger)" }} disabled={busy} onClick={remove}>
+      <Icon name="x" size={15} />
+      Delete
     </button>
   );
 }

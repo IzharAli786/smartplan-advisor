@@ -140,4 +140,19 @@ export async function registerCollateralRoutes(app: FastifyInstance) {
     if (!updated) throw notFound("Collateral not found");
     return { collateral: present(updated) };
   });
+
+  // DELETE /api/collateral/:id — permanently remove an asset. Managerial.
+  // Hiding (PATCH active:false) is the reversible option; this is the hard delete.
+  app.delete("/:id", async (req) => {
+    const user = requireManagerial(req);
+    const { id } = req.params as { id: string };
+    const [removed] = await db
+      .delete(collateral)
+      .where(and(eq(collateral.id, id), eq(collateral.orgId, user.orgId)))
+      .returning();
+    if (!removed) throw notFound("Collateral not found");
+    // Drop the backing file too, so hosted blobs don't outlive their record.
+    if (removed.storageKey) await storage.delete(removed.storageKey);
+    return { ok: true };
+  });
 }
