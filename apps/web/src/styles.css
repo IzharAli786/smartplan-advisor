@@ -346,14 +346,3 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* On phones the centered banner covers the FAB — hide it while the banner shows
  * (InstallPrompt toggles this class) so the primary "+" action isn't blocked. */
 .has-install-banner .fab { display: none; }
-
-/* Feedback trigger — a <button> styled exactly like the sidebar nav links
- * (those rules target `.sidebar-nav a`, which a button doesn't match). */
-.sidebar-nav .nav-feedback {
-  display: flex; align-items: center; gap: 0.6rem; width: 100%;
-  padding: 0 0.75rem; height: 40px; margin-bottom: 4px;
-  border-radius: 8px; color: var(--sidebar-text);
-  font-family: inherit; font-size: 0.875rem; font-weight: 500;
-  background: none; border: none; cursor: pointer; text-align: left;
-}
-.sidebar-nav .nav-feedback:hover { background: var(--sidebar-hover); color: var(--sidebar-heading); }

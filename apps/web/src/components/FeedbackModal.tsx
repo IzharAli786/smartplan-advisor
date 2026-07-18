@@ -7,34 +7,40 @@ import { Icon } from "./Icon.tsx";
 // Same fields and values as SmartPlan's in-app feedback dialog — the API
 // forwards the submission to SmartPlan's central eco-admin feedback inbox,
 // where it lands tagged source="advisor".
-const FEEDBACK_CATEGORIES = [
+export const FEEDBACK_CATEGORIES = [
   { value: "feature", label: "Feature Request" },
   { value: "bug", label: "Bug Report" },
   { value: "improvement", label: "Improvement" },
 ];
-const FEEDBACK_PRIORITIES = [
+export const FEEDBACK_PRIORITIES = [
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
 ];
 
 /**
- * Sidebar entry (all users): submit feedback (feature request / bug report /
- * improvement) to the SmartPlan team. The trigger is styled like a nav link;
- * the modal is portaled to <body> because the mobile sidebar drawer is CSS-
- * transformed, which would otherwise re-root the fixed-position overlay.
+ * Controlled feedback dialog: submit a feature request / bug report /
+ * improvement to the SmartPlan team. Portaled to <body> so it can be opened
+ * from anywhere (incl. CSS-transformed containers) without stacking issues.
  */
-export function FeedbackButton() {
-  const [open, setOpen] = useState(false);
+export function FeedbackModal({
+  open,
+  onClose,
+  onSubmitted,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmitted?: () => void;
+}) {
   const [sent, setSent] = useState(false);
   const [form, setForm] = useState({ title: "", description: "", category: "feature", priority: "medium" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   function close() {
-    setOpen(false);
     setSent(false);
     setErr(null);
+    onClose();
   }
 
   async function submit(e: FormEvent) {
@@ -54,6 +60,7 @@ export function FeedbackButton() {
       });
       setForm({ title: "", description: "", category: "feature", priority: "medium" });
       setSent(true);
+      onSubmitted?.();
     } catch (e2) {
       setErr(e2 instanceof ApiError ? e2.message : "Could not send feedback — please try again");
     } finally {
@@ -61,7 +68,9 @@ export function FeedbackButton() {
     }
   }
 
-  const modal = (
+  if (!open) return null;
+
+  return createPortal(
     <div className="modal-overlay" onClick={close}>
       <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
         <div className="row" style={{ marginBottom: ".5rem" }}>
@@ -126,18 +135,7 @@ export function FeedbackButton() {
           </>
         )}
       </div>
-    </div>
-  );
-
-  return (
-    <>
-      <button className="nav-feedback" onClick={() => setOpen(true)}>
-        <span className="nav-icon">
-          <Icon name="message-square" size={19} />
-        </span>
-        <span>Feedback</span>
-      </button>
-      {open && createPortal(modal, document.body)}
-    </>
+    </div>,
+    document.body,
   );
 }
