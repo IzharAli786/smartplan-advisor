@@ -6,6 +6,7 @@ import { useBranding } from "../branding/BrandingContext.tsx";
 import { useTheme } from "../theme/ThemeContext.tsx";
 import { Icon, type IconName } from "./Icon.tsx";
 import { AdviseWordmark } from "./AdviseWordmark.tsx";
+import { FeedbackButton } from "./FeedbackButton.tsx";
 import HighFiveOverlay from "./HighFiveOverlay.tsx";
 
 interface NavItem {
@@ -120,6 +121,7 @@ export default function Layout() {
               {it.badge ? <span className="nav-badge">{it.badge > 99 ? "99+" : it.badge}</span> : null}
             </NavLink>
           ))}
+          <FeedbackButton />
         </nav>
         <div className="sidebar-user">
           <input

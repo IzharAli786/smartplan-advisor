@@ -244,6 +244,14 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(15,24,37,0.55); display: flex; align-items: flex-start; justify-content: center; padding: 4vh 1rem; z-index: 1000; overflow-y: auto; }
 .modal { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 14px; width: 100%; max-width: 640px; padding: 1.25rem; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
 
+/* Compact, vertically-centered confirmation dialog (e.g. destructive actions). */
+.modal-overlay.center { align-items: center; }
+.confirm-modal { max-width: 420px; animation: confirm-pop 0.16s ease-out both; }
+@keyframes confirm-pop { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+.confirm-head { display: flex; align-items: flex-start; gap: 0.75rem; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1.25rem; }
+.icon-tile.danger { background: rgba(220, 61, 67, 0.12); color: var(--color-danger); }
+
 /* Phone input: country dial-code selector + number */
 .phone-input { display: flex; gap: 0; }
 .phone-input select { flex: 0 0 auto; width: auto; min-width: 76px; border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; padding-right: 1.1rem; }
@@ -338,3 +346,14 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* On phones the centered banner covers the FAB — hide it while the banner shows
  * (InstallPrompt toggles this class) so the primary "+" action isn't blocked. */
 .has-install-banner .fab { display: none; }
+
+/* Feedback trigger — a <button> styled exactly like the sidebar nav links
+ * (those rules target `.sidebar-nav a`, which a button doesn't match). */
+.sidebar-nav .nav-feedback {
+  display: flex; align-items: center; gap: 0.6rem; width: 100%;
+  padding: 0 0.75rem; height: 40px; margin-bottom: 4px;
+  border-radius: 8px; color: var(--sidebar-text);
+  font-family: inherit; font-size: 0.875rem; font-weight: 500;
+  background: none; border: none; cursor: pointer; text-align: left;
+}
+.sidebar-nav .nav-feedback:hover { background: var(--sidebar-hover); color: var(--sidebar-heading); }
