@@ -58,7 +58,8 @@ export type IconName =
   | "list-ordered"
   | "table"
   | "paperclip"
-  | "send";
+  | "send"
+  | "trash";
 
 const PATHS: Record<IconName, JSX.Element> = {
   dashboard: (
@@ -253,6 +254,14 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <path d="M12 3 13.9 8.6 19.5 10.5 13.9 12.4 12 18 10.1 12.4 4.5 10.5 10.1 8.6 12 3Z" />
       <path d="M19 15l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z" />
+    </>
+  ),
+  trash: (
+    <>
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
     </>
   ),
   "alert-triangle": (
