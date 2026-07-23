@@ -7,7 +7,7 @@ const ITEMS: { to: string; label: string; icon: IconName; hint: string }[] = [
   { to: "/users", label: "Smart Advisors", icon: "users", hint: "Roster, commission rates, invites" },
   { to: "/reports", label: "Reports", icon: "reports", hint: "Converted customers + CSV" },
   { to: "/settings", label: "Settings", icon: "settings", hint: "Products & status stages" },
-  { to: "/library", label: "Library", icon: "library", hint: "Marketing collateral & videos" },
+  { to: "/library", label: "Resources", icon: "library", hint: "Marketing collateral & videos" },
   { to: "/claims", label: "Takeover requests", icon: "requests", hint: "Approve / reject" },
 ];
 

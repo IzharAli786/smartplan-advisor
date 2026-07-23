@@ -80,7 +80,7 @@ export default function Layout() {
         { to: "/address-book", label: "Address Book", icon: "contact" },
         { to: "/claims", label: "Takeover Requests", icon: "requests" },
         { to: "/quotes", label: "Quotes", icon: "file-text" },
-        { to: "/library", label: "Library", icon: "library" },
+        { to: "/library", label: "Resources", icon: "library" },
         notif,
         { to: "/feedback", label: "Feedback", icon: "message-square" },
         { to: "/reports", label: "Reports", icon: "reports" },
@@ -95,7 +95,7 @@ export default function Layout() {
         { to: "/new", label: "New Opportunity", icon: "plus" },
         { to: "/quotes", label: "Quotes", icon: "file-text" },
         { to: "/address-book", label: "Address Book", icon: "contact" },
-        { to: "/library", label: "Library", icon: "library" },
+        { to: "/library", label: "Resources", icon: "library" },
         notif,
         { to: "/feedback", label: "Feedback", icon: "message-square" },
       ];

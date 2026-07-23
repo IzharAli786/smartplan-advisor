@@ -55,7 +55,7 @@ export default function LibraryPage() {
   return (
     <div>
       <PageHead
-        title="Library"
+        title="Resources"
         subtitle="Marketing collateral & videos by product"
         actions={isManager ? <ManageActions products={products} reload={reload} /> : undefined}
       />
@@ -85,7 +85,7 @@ export default function LibraryPage() {
         <EmptyState
           icon="library"
           title="No collateral here yet"
-          hint={isManager ? "Use “Add to library” to upload files or add a video/link." : product ? `Nothing for ${product} yet.` : "Check back soon."}
+          hint={isManager ? "Use “Add to resources” to upload files or add a video/link." : product ? `Nothing for ${product} yet.` : "Check back soon."}
         />
       ) : (
         data.collateral.map((c) => (
@@ -206,7 +206,7 @@ function DeleteAction({ c, reload }: { c: Collateral; reload: () => void }) {
               <div>
                 <h3 style={{ margin: 0 }}>Delete “{c.title}”?</h3>
                 <p className="muted" style={{ margin: ".35rem 0 0", fontSize: ".85rem" }}>
-                  This removes it from the library for everyone{hosted ? " and deletes the uploaded file" : ""}. This
+                  This removes it from the resources for everyone{hosted ? " and deletes the uploaded file" : ""}. This
                   can’t be undone.
                 </p>
               </div>
@@ -278,7 +278,7 @@ function ManageActions({ products, reload }: { products: { id: string; label: st
   if (!open) {
     return (
       <button className="btn" onClick={() => setOpen(true)}>
-        <Icon name="plus" size={16} /> Add to library
+        <Icon name="plus" size={16} /> Add to resources
       </button>
     );
   }
@@ -287,7 +287,7 @@ function ManageActions({ products, reload }: { products: { id: string; label: st
     <div className="modal-overlay" onClick={() => setOpen(false)}>
       <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
         <div className="row" style={{ marginBottom: ".5rem" }}>
-          <h3 style={{ margin: 0 }}>Add to library</h3>
+          <h3 style={{ margin: 0 }}>Add to resources</h3>
           <button className="btn small ghost icon-only" aria-label="Close" onClick={() => setOpen(false)}>
             <Icon name="x" size={16} />
           </button>
@@ -348,7 +348,7 @@ function ManageActions({ products, reload }: { products: { id: string; label: st
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
           <button className="btn full" disabled={busy}>
-            {busy ? "Saving…" : "Add to library"}
+            {busy ? "Saving…" : "Add to resources"}
           </button>
         </form>
       </div>
