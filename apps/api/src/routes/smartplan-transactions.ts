@@ -9,6 +9,7 @@ import {
   smartPlanSubscriptionStatusSchema,
   isManagerial,
   normalizeCompanyName,
+  normalizeCompanyKey,
   normalizeEmail,
   normalizePhoneE164,
   computeNextStep,
@@ -31,6 +32,36 @@ function requireIngestSecret(headers: Record<string, unknown>): void {
   if ((headers["x-ingest-secret"] as string | undefined) !== env.smartplanIngestSecret) throw forbidden("Bad ingest secret");
 }
 
+/**
+ * Find the account this SmartPlan payload belongs to, ORG-WIDE (§5.1).
+ *
+ * SmartPlan only ever knows the advisor who originally referred the customer — it has no
+ * idea a takeover happened. Scoping these lookups by `advisor_id` (the old behaviour)
+ * meant a transferred referral account silently stopped matching: revenue kept accruing to
+ * the previous advisor, re-activations created a duplicate opportunity under them, and
+ * subscription events stopped converting the deal that had actually moved. Resolving by
+ * company within the org instead lets ownership be the CRM's business, not SmartPlan's.
+ *
+ * NOTE the key: `normalizeCompanyName`, NOT `companyKey`. SmartPlan sends legal billing
+ * names ("Acme Heating & Cooling LLC") against what the advisor typed ("Acme Heating and
+ * Cooling"); only the tolerant key bridges those. `smartplan_transactions.company_name_
+ * normalized` is already written with it and read by reports-data.ts, so switching keys
+ * here would double-count subscribers. Because approval no longer overwrites the company
+ * name, this key is now stable across a takeover — which is what makes the lookup work.
+ */
+async function findAccountByCompany(orgId: string, companyName: string) {
+  const key = normalizeCompanyName(companyName) || companyName.trim().toLowerCase();
+  const [row] = await db
+    .select({ id: opportunities.id, advisorId: opportunities.advisorId, status: opportunities.status })
+    .from(opportunities)
+    .where(and(eq(opportunities.orgId, orgId), eq(opportunities.companyNameNormalized, key)))
+    // A referral row is the one activation created, so it wins over an advisor's own
+    // typed card for the same company; otherwise take the most recently touched.
+    .orderBy(dsql`CASE WHEN ${opportunities.source} = 'referral' THEN 0 ELSE 1 END`, desc(opportunities.updatedAt))
+    .limit(1);
+  return { key, row: row ?? null };
+}
+
 export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
   // ── Server-to-server endpoints (NO session). ──────────────────────────────
   // These two are guarded by the x-ingest-secret header only. They MUST NOT be
@@ -45,11 +76,21 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
     const input = parse(smartPlanTxnIngestSchema, req.body);
     const [advisor] = await db.select({ orgId: users.orgId }).from(users).where(eq(users.id, input.advisor_id)).limit(1);
     if (!advisor) throw notFound("Advisor not found");
+
+    // Revenue follows the ACCOUNT, not the referrer. `advisor_id` in the payload is
+    // whoever originally referred the customer; if the account has since been taken over,
+    // the new owner earns the recurring revenue from here on. Rows already written are
+    // left exactly as they are — this changes attribution going forward, never history.
+    // Falls back to the payload advisor when there's no matching account (revenue arriving
+    // before activation, or a company name we can't resolve).
+    const account = input.company_name ? await findAccountByCompany(advisor.orgId, input.company_name) : null;
+    const advisorId = account?.row?.advisorId ?? input.advisor_id;
+
     const [created] = await db
       .insert(smartplanTransactions)
       .values({
         orgId: advisor.orgId,
-        advisorId: input.advisor_id,
+        advisorId,
         stripeTransactionId: input.stripe_transaction_id,
         occurredAt: input.occurred_at ?? new Date(),
         amount: String(input.amount),
@@ -96,17 +137,11 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
       .limit(1);
     if (!advisor) throw notFound("Advisor not found or inactive");
 
-    // Non-Latin/punctuation-only names normalize to "" — fall back to the raw
-    // lowercased name so distinct companies never collapse onto one dedupe key.
-    const companyNameNormalized = normalizeCompanyName(input.company_name) || input.company_name.trim().toLowerCase();
-
-    // Idempotent: one opportunity per (advisor, company) — safe under webhook
-    // retries and the checkout/subscription double-fire from SmartPlan.
-    const [existing] = await db
-      .select({ id: opportunities.id })
-      .from(opportunities)
-      .where(and(eq(opportunities.advisorId, advisor.id), eq(opportunities.companyNameNormalized, companyNameNormalized)))
-      .limit(1);
+    // Idempotent: one opportunity per (org, company) — safe under webhook retries and the
+    // checkout/subscription double-fire from SmartPlan. Scoped org-wide rather than by
+    // advisor so a re-activation after a takeover dedupes against the transferred account
+    // instead of minting a second one under the original referrer.
+    const { key: companyNameNormalized, row: existing } = await findAccountByCompany(advisor.orgId, input.company_name);
     if (existing) return { opportunity_id: existing.id, deduped: true };
 
     const now = new Date();
@@ -129,6 +164,7 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
         advisorId: advisor.id,
         contractorCompanyName: input.company_name,
         companyNameNormalized,
+        companyKey: normalizeCompanyKey(input.company_name),
         contactName: input.contact_name ?? null,
         contactEmail: input.contact_email ?? null,
         contactEmailNormalized: normalizeEmail(input.contact_email),
@@ -152,12 +188,10 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
       .returning({ id: opportunities.id });
 
     if (!opp) {
-      // Lost the race — return the row the concurrent request created.
-      const [winner] = await db
-        .select({ id: opportunities.id })
-        .from(opportunities)
-        .where(and(eq(opportunities.advisorId, advisor.id), eq(opportunities.companyNameNormalized, companyNameNormalized)))
-        .limit(1);
+      // Lost the race — return the row the concurrent request created. MUST use the same
+      // predicate as the check above, or the loser re-selects nothing and the caller
+      // retries into a duplicate.
+      const { row: winner } = await findAccountByCompany(advisor.orgId, input.company_name);
       return { opportunity_id: winner?.id ?? null, deduped: true };
     }
 
@@ -340,21 +374,18 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
       .limit(1);
     if (!advisor) throw notFound("Advisor not found");
 
-    // Same dedupe key as /activation, so the lookup always finds the
-    // opportunity that activation created.
-    const companyNameNormalized = normalizeCompanyName(input.company_name) || input.company_name.trim().toLowerCase();
-    const [opp] = await db
-      .select({ id: opportunities.id, status: opportunities.status })
-      .from(opportunities)
-      .where(and(eq(opportunities.advisorId, advisor.id), eq(opportunities.companyNameNormalized, companyNameNormalized)))
-      .limit(1);
+    // Same lookup as /activation, so this always finds the opportunity activation created
+    // — including after a takeover moved it to a different advisor.
+    const { row: opp } = await findAccountByCompany(advisor.orgId, input.company_name);
     // No pipeline card yet (activation never landed) — nothing to update. The
     // caller is fire-and-forget and pushes activation on its catch-up paths.
     if (!opp) return { updated: false, reason: "opportunity_not_found" };
 
     const now = new Date();
     if (input.event === "canceled") {
-      await logActivity({ opportunityId: opp.id, advisorId: advisor.id, type: "system", subject: "SmartPlan subscription cancelled" });
+      // Timeline entries are attributed to the account's CURRENT owner, not the referrer —
+      // otherwise the new owner's own pipeline shows activity credited to someone else.
+      await logActivity({ opportunityId: opp.id, advisorId: opp.advisorId, type: "system", subject: "SmartPlan subscription cancelled" });
       await db.update(opportunities).set({ lastActivityAt: now, updatedAt: now }).where(eq(opportunities.id, opp.id));
       return { updated: true, event: "canceled" };
     }
@@ -368,7 +399,7 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
       .set({ status: won.key, statusChangedAt: now, nextStep: null, nextStepDue: null, updatedAt: now, lastActivityAt: now })
       .where(eq(opportunities.id, opp.id));
     await ensureConversion(opp.id);
-    await logActivity({ opportunityId: opp.id, advisorId: advisor.id, type: "system", subject: "SmartPlan subscription activated — marked Won" });
+    await logActivity({ opportunityId: opp.id, advisorId: opp.advisorId, type: "system", subject: "SmartPlan subscription activated — marked Won" });
     return { updated: true, event: "subscribed", stage: won.key };
   });
 

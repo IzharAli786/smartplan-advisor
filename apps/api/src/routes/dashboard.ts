@@ -95,7 +95,7 @@ export async function registerDashboardRoutes(app: FastifyInstance) {
     const won = await db.execute<{ ym: string; cnt: number; val: string }>(dsql`
       SELECT to_char(date_trunc('month', converted_at), 'YYYY-MM') AS ym, count(*)::int AS cnt, COALESCE(sum(deal_value), 0) AS val
       FROM transactions
-      WHERE org_id = ${org} AND converted_at >= date_trunc('month', now()) - interval '11 months'
+      WHERE org_id = ${org} AND voided_at IS NULL AND converted_at >= date_trunc('month', now()) - interval '11 months'
       GROUP BY 1`);
     const created = await db.execute<{ ym: string; cnt: number }>(dsql`
       SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS ym, count(*)::int AS cnt
@@ -110,7 +110,7 @@ export async function registerDashboardRoutes(app: FastifyInstance) {
     const prod = await db.execute<{ product: string; val: string }>(dsql`
       SELECT COALESCE(NULLIF(o.product, ''), '—') AS product, COALESCE(sum(t.deal_value), 0) AS val
       FROM transactions t JOIN opportunities o ON o.id = t.opportunity_id
-      WHERE t.org_id = ${org} AND t.converted_at >= date_trunc('year', now())
+      WHERE t.org_id = ${org} AND t.voided_at IS NULL AND t.converted_at >= date_trunc('year', now())
       GROUP BY 1 ORDER BY val DESC LIMIT 8`);
 
     const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

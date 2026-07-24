@@ -12,11 +12,15 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
     "lint": "tsc --noEmit",
-    "migrate": "tsx src/migrate.ts",
+    "migrate": "tsx src/migrate.ts up",
+    "migrate:status": "tsx src/migrate.ts status",
+    "migrate:doctor": "tsx src/migrate.ts doctor",
+    "migrate:baseline": "tsx src/migrate.ts baseline",
     "seed": "tsx src/seed.ts",
     "reset": "tsx src/reset.ts",
     "smoke": "tsx src/smoke.ts",
-    "verify:commission": "tsx src/verify-commission.ts"
+    "verify:commission": "tsx src/verify-commission.ts",
+    "verify:takeover-webhooks": "tsx src/verify-takeover-webhooks.ts"
   },
   "dependencies": {
     "@smart-crm/shared": "workspace:*",

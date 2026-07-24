@@ -9,6 +9,7 @@ import {
   mapApolloColumns,
   APOLLO_LEAD_FIELDS,
   normalizeCompanyName,
+  normalizeCompanyKey,
   normalizeEmail,
   normalizePhoneE164,
   computeNextStep,
@@ -116,7 +117,7 @@ export async function registerLeadRoutes(app: FastifyInstance) {
         const { ownMatch, conflict } = await findMatches({
           orgId: user.orgId,
           requestingAdvisorId: input.advisor_id,
-          companyNameNormalized: companyNorm,
+          companyKey: normalizeCompanyKey(row.company_name),
           contactEmailNormalized: emailNorm,
           contactCellE164: phoneE164,
         });
@@ -284,6 +285,7 @@ export async function registerLeadRoutes(app: FastifyInstance) {
         advisorId: lead.assignedAdvisorId,
         contractorCompanyName: lead.companyName,
         companyNameNormalized: lead.companyNameNormalized,
+        companyKey: normalizeCompanyKey(lead.companyName),
         contactName,
         contactEmail: lead.email ?? null,
         contactEmailNormalized: lead.emailNormalized,

@@ -117,6 +117,7 @@ export async function registerReportRoutes(app: FastifyInstance) {
       FROM transactions t
       JOIN opportunities o ON o.id = t.opportunity_id
       WHERE t.advisor_id = ${advisorId}::uuid AND t.org_id = ${viewer.orgId}::uuid
+        AND t.voided_at IS NULL
         AND t.converted_at >= ${from}::timestamptz AND t.converted_at <= ${to}::timestamptz
       ORDER BY t.converted_at ASC
     `);
@@ -165,7 +166,8 @@ export async function registerReportRoutes(app: FastifyInstance) {
       FROM transactions t
       JOIN opportunities o ON o.id = t.opportunity_id
       JOIN users u ON u.id = t.advisor_id
-      WHERE t.org_id = ${viewer.orgId}::uuid AND t.converted_at >= ${from}::timestamptz AND t.converted_at <= ${to}::timestamptz
+      WHERE t.org_id = ${viewer.orgId}::uuid AND t.voided_at IS NULL
+        AND t.converted_at >= ${from}::timestamptz AND t.converted_at <= ${to}::timestamptz
       ORDER BY t.converted_at DESC
     `);
 

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db, opportunities, users, claimRequests, statusStages, products, activities, opportunityProducts, journeyStages, opportunityJourney } from "@smart-crm/db";
 import {
@@ -7,6 +7,7 @@ import {
   convertSchema,
   logActivitySchema,
   normalizeCompanyName,
+  normalizeCompanyKey,
   normalizeEmail,
   normalizePhoneE164,
   computeNextStep,
@@ -20,6 +21,7 @@ import { findMatches } from "../services/dedupe.js";
 import { getStage, getInitialStageKey } from "../services/stages.js";
 import { ensureConversion, removeConversion } from "../services/convert.js";
 import { notify } from "../services/notify.js";
+import { sendTakeoverAlerts, takeoverEmailHtml, type TakeoverAlert } from "../services/takeover-notify.js";
 import { logActivity } from "../services/activity.js";
 import { transcribeToDraft, isVoiceConfigured } from "../services/voice.js";
 import { priceLines, summarizeProducts, replaceProductLines, getProductLines } from "../services/opportunity-products.js";
@@ -32,12 +34,78 @@ function mapOpp(row: typeof opportunities.$inferSelect) {
   };
 }
 
-async function notifyManagers(orgId: string, message: string, relatedId: string) {
+/**
+ * Fan out the alerts for a newly raised takeover request (§5.1).
+ *
+ * The CURRENT OWNER is told at raise time, not merely after the account has already been
+ * taken from them. They get a distinct `takeover_requested` type because `claim_request`
+ * deep-links to /claims, a manager-only page — the owner would land on a blocked screen.
+ * Their relatedId is the OPPORTUNITY, which they still own, so the link resolves.
+ *
+ * The requester's own acknowledgement stays in-app only: they are looking at the blocked
+ * screen that says the same thing, and an import tripping ten blocks would otherwise send
+ * them ten emails.
+ */
+async function alertTakeoverRaised(args: {
+  orgId: string;
+  claimRequestId: string;
+  opportunityId: string;
+  companyName: string;
+  requesterId: string;
+  requesterName: string;
+  ownerId: string;
+  ownerName: string;
+  log: FastifyBaseLogger;
+}) {
   const managers = await db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.orgId, orgId), eq(users.active, true), eq(users.role, "super_admin")));
-  await Promise.all(managers.map((m) => notify({ orgId, userId: m.id, type: "claim_request", message, relatedId })));
+    .where(and(eq(users.orgId, args.orgId), eq(users.active, true), eq(users.role, "super_admin")));
+
+  const managerMessage = `${args.requesterName} is requesting to take over ${args.companyName}, currently held by ${args.ownerName}.`;
+  const alerts: TakeoverAlert[] = managers.map((m) => ({
+    orgId: args.orgId,
+    userId: m.id,
+    type: "claim_request" as const,
+    relatedId: args.claimRequestId,
+    message: managerMessage,
+    subject: `Takeover request — ${args.companyName}`,
+    html: takeoverEmailHtml({
+      greetingName: "there",
+      intro: managerMessage,
+      details: ["Review the account history alongside what the requesting advisor captured, then approve or decline."],
+      ctaLabel: "Review takeover requests",
+      ctaPath: "/claims",
+    }),
+  }));
+
+  alerts.push({
+    orgId: args.orgId,
+    userId: args.ownerId,
+    type: "takeover_requested",
+    relatedId: args.opportunityId,
+    message: `${args.requesterName} has requested to take over ${args.companyName}. A manager will review it.`,
+    subject: `Takeover requested — ${args.companyName}`,
+    html: takeoverEmailHtml({
+      greetingName: args.ownerName,
+      intro: `${args.requesterName} has requested to take over ${args.companyName}, which is currently assigned to you. A manager will review the request.`,
+      details: [
+        "Nothing has changed yet. Logging recent activity on the account is the best way to show it is being worked.",
+      ],
+      ctaLabel: "Open the account",
+      ctaPath: `/opportunity/${args.opportunityId}`,
+    }),
+  });
+
+  await sendTakeoverAlerts(alerts, args.log);
+
+  await notify({
+    orgId: args.orgId,
+    userId: args.requesterId,
+    type: "claim_request",
+    message: `${args.companyName} is already an active account (${args.ownerName}'s). Your takeover request has been sent for review.`,
+    relatedId: args.claimRequestId,
+  });
 }
 
 export async function registerOpportunityRoutes(app: FastifyInstance) {
@@ -96,20 +164,26 @@ export async function registerOpportunityRoutes(app: FastifyInstance) {
     const draft = parse(opportunityDraftSchema, req.body);
 
     const companyNorm = normalizeCompanyName(draft.contractor_company_name);
+    const companyKey = normalizeCompanyKey(draft.contractor_company_name);
     const emailNorm = normalizeEmail(draft.contact_email);
     const cellE164 = normalizePhoneE164(draft.contact_cell);
 
     const { ownMatch, conflict: territoryConflict } = await findMatches({
       orgId: user.orgId,
       requestingAdvisorId: user.id,
-      companyNameNormalized: companyNorm,
+      companyKey,
       contactEmailNormalized: emailNorm,
       contactCellE164: cellE164,
     });
 
     // Active account owned by another advisor → BLOCK + raise a takeover request (§5.1).
     if (territoryConflict) {
-      const [cr] = await db
+      // An advisor who is blocked will often just hit Save again. claim_requests_pending_uniq
+      // (migration 0024) makes that repeat a no-op instead of piling up identical rows in the
+      // manager's queue — so the insert must tolerate the conflict rather than 500. `created`
+      // is undefined on a repeat, which is also how we know not to re-notify: the manager was
+      // already told when the request was first raised.
+      const [created] = await db
         .insert(claimRequests)
         .values({
           orgId: user.orgId,
@@ -118,22 +192,25 @@ export async function registerOpportunityRoutes(app: FastifyInstance) {
           requestingAdvisorId: user.id,
           currentOwnerId: territoryConflict.advisorId,
           draft, // nothing is re-typed later
+          matchedOn: territoryConflict.matchedOn, // why the save was blocked, as told to the advisor
           status: "pending",
         })
+        .onConflictDoNothing()
         .returning({ id: claimRequests.id });
 
-      await notifyManagers(
-        user.orgId,
-        `${user.fullName} is requesting to take over ${territoryConflict.contractorCompanyName}, currently held by ${territoryConflict.ownerName}.`,
-        cr!.id,
-      );
-      await notify({
-        orgId: user.orgId,
-        userId: user.id,
-        type: "claim_request",
-        message: `${territoryConflict.contractorCompanyName} is already an active account (${territoryConflict.ownerName}'s). Your takeover request has been sent for review.`,
-        relatedId: cr!.id,
-      });
+      if (created) {
+        await alertTakeoverRaised({
+          orgId: user.orgId,
+          claimRequestId: created.id,
+          opportunityId: territoryConflict.id,
+          companyName: territoryConflict.contractorCompanyName,
+          requesterId: user.id,
+          requesterName: user.fullName,
+          ownerId: territoryConflict.advisorId,
+          ownerName: territoryConflict.ownerName,
+          log: req.log,
+        });
+      }
 
       throw conflict(
         `${territoryConflict.contractorCompanyName} is already an active account (${territoryConflict.ownerName}'s). Your takeover request has been sent to a manager for review.`,
@@ -165,6 +242,7 @@ export async function registerOpportunityRoutes(app: FastifyInstance) {
         advisorId: user.id,
         contractorCompanyName: draft.contractor_company_name,
         companyNameNormalized: companyNorm,
+        companyKey,
         contactName: draft.contact_name ?? null,
         contactEmail: draft.contact_email ?? null,
         contactEmailNormalized: emailNorm,
@@ -331,6 +409,9 @@ export async function registerOpportunityRoutes(app: FastifyInstance) {
     if (input.contractor_company_name !== undefined) {
       patch.contractorCompanyName = input.contractor_company_name;
       patch.companyNameNormalized = normalizeCompanyName(input.contractor_company_name);
+      // Both keys are derived from the name — leaving company_key stale would keep the
+      // territory block matching the OLD company after a rename.
+      patch.companyKey = normalizeCompanyKey(input.contractor_company_name);
     }
     if (input.contact_name !== undefined) patch.contactName = input.contact_name ?? null;
     if (input.contact_email !== undefined) {

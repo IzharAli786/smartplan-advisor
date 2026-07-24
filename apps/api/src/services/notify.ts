@@ -1,9 +1,13 @@
 import { db, notifications } from "@smart-crm/db";
 
-type NotificationType =
+export type NotificationType =
   | "claim_request"
   | "claim_decision"
   | "account_reassigned"
+  // Raised on the CURRENT OWNER when someone requests their account. Distinct from
+  // "claim_request" (which goes to managers and deep-links to /claims, a page advisors
+  // can't open) so NotificationsPage can route the owner to the opportunity instead.
+  | "takeover_requested"
   | "follow_up"
   | "next_step"
   | "quote_update";

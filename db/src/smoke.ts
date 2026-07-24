@@ -118,20 +118,53 @@ async function main() {
   check("advisor A creates opportunity", oppA.status === 200 && oppA.json.opportunity?.id, oppA.json);
   const oppAId = oppA.json.opportunity?.id;
 
-  // Advisor B tries the same company → territory block + claim request.
-  const oppB = await b.req("POST", "/api/opportunities", {
-    contractor_company_name: `${company} Inc`,
+  // ── Territory matching is EXACT on company name, ignoring only case and punctuation.
+  // These two checks ARE the rule: the first must block, the second must not.
+
+  // Same company, different case + punctuation + padding → still the same account.
+  const oppBDupe = await b.req("POST", "/api/opportunities", {
+    contractor_company_name: `  ${company.toUpperCase()}.  `,
     product: "Smart Plan Survey",
     state: "CO",
   });
-  check("advisor B blocked by territory (409)", oppB.status === 409 && oppB.json.code === "territory_blocked", oppB);
+  check("case/punctuation variant blocked by territory (409)", oppBDupe.status === 409 && oppBDupe.json.code === "territory_blocked", oppBDupe);
 
-  // Manager sees the claim request and approves it.
+  // Different legal suffix → a genuinely different company. Must go through. The old
+  // fuzzy rule collapsed both of these to "acme {tag}" and false-blocked this save.
+  const oppBDistinct = await b.req("POST", "/api/opportunities", {
+    contractor_company_name: `${company} LLC`,
+    product: "Smart Plan Survey",
+    state: "CO",
+  });
+  check("different legal suffix is a different account (200)", oppBDistinct.status === 200 && !!oppBDistinct.json.opportunity?.id, oppBDistinct.json);
+
+  // Manager sees exactly ONE claim request for this account.
   const claims = await tom.req("GET", "/api/claim-requests?status=pending");
-  const claim = claims.json.claimRequests?.find((c: any) => c.matchedOpportunityId === oppAId);
+  const forThisOpp = (claims.json.claimRequests ?? []).filter((c: any) => c.matchedOpportunityId === oppAId);
+  const claim = forThisOpp[0];
   check("claim request raised + visible to manager", !!claim, claims.json);
-  const decide = await tom.req("POST", `/api/claim-requests/${claim.id}/decide`, { decision: "approved" });
+  check("claim carries the blocking signal", claim?.matchedOn === "company", claim);
+  check("claim carries decision context (stage + owner)", !!claim?.ownerStageLabel && !!claim?.currentOwnerName, claim);
+
+  // Re-submitting the same blocked company must NOT pile up a second queue row.
+  const oppBRepeat = await b.req("POST", "/api/opportunities", {
+    contractor_company_name: company.toLowerCase(),
+    product: "Smart Plan Survey",
+    state: "CO",
+  });
+  check("repeat submission still blocked (409)", oppBRepeat.status === 409 && oppBRepeat.json.code === "territory_blocked", oppBRepeat);
+  const claims2 = await tom.req("GET", "/api/claim-requests?status=pending");
+  const forThisOpp2 = (claims2.json.claimRequests ?? []).filter((c: any) => c.matchedOpportunityId === oppAId);
+  check("repeat submission does not duplicate the request", forThisOpp2.length === 1, forThisOpp2);
+
+  const decide = await tom.req("POST", `/api/claim-requests/${claim.id}/decide`, { decision: "approved", decision_note: "Smoke test approval" });
   check("manager approves takeover", decide.status === 200 && decide.json.status === "approved", decide.json);
+
+  // Approval is a pure ownership move: the incumbent's company name survives, and the
+  // requester's capture is appended to the notes rather than overwriting the record.
+  const afterMove = await tom.req("GET", `/api/opportunities/${oppAId}`);
+  check("approval keeps the existing company name", afterMove.json.opportunity?.contractorCompanyName === company, afterMove.json.opportunity);
+  check("approval appends the requester's intake to notes", (afterMove.json.opportunity?.notes ?? "").includes("Takeover intake"), afterMove.json.opportunity?.notes);
 
   // Ownership transferred to B: A no longer sees it; B does.
   const aList = await a.req("GET", "/api/opportunities");
@@ -148,6 +181,95 @@ async function main() {
   const row = report.json.rows?.find((r: any) => r.dealValue === 8000);
   check("converted report includes the deal", !!row, report.json);
   check("commission snapshot computed (12% of 8000 = 960)", row && row.commissionRateSnapshot === 12 && row.commissionAmount === 960, row);
+
+  // ── THE EARNER IS PINNED AT FIRST CONVERSION. ──────────────────────────────
+  // B earned this deal. A takeover moves it back to A; A then toggles it out of Won and
+  // back. Before the voided_at rework this hard-deleted B's transaction and re-inserted it
+  // under A — one dropdown click silently transferred B's commission, quota attainment and
+  // badge tier. The money must stay with B.
+  const [txnBefore] = await db.execute<{ advisor_id: string; converted_at: string }>(
+    dsql`SELECT advisor_id, converted_at FROM transactions WHERE opportunity_id = ${oppAId}::uuid AND voided_at IS NULL`,
+  );
+
+  // Won is a conversion stage, so it still blocks — A gets a claim request, not a save.
+  const reclaim = await a.req("POST", "/api/opportunities", {
+    contractor_company_name: company,
+    product: "Smart Plan Survey",
+    state: "CO",
+  });
+  check("won account still blocks another advisor (409)", reclaim.status === 409 && reclaim.json.code === "territory_blocked", reclaim);
+  const claims3 = await tom.req("GET", "/api/claim-requests?status=pending");
+  const claimBack = (claims3.json.claimRequests ?? []).find((c: any) => c.matchedOpportunityId === oppAId);
+  const decideBack = await tom.req("POST", `/api/claim-requests/${claimBack?.id}/decide`, { decision: "approved" });
+  check("manager approves the deal moving back to A", decideBack.status === 200, decideBack.json);
+
+  // A toggles it out of Won and back.
+  const unwin = await a.req("PATCH", `/api/opportunities/${oppAId}`, { status: "proposal" });
+  check("new owner can move the deal out of Won", unwin.status === 200, unwin.json);
+  const rewin = await a.req("PATCH", `/api/opportunities/${oppAId}`, { status: "won" });
+  check("new owner can move the deal back to Won", rewin.status === 200, rewin.json);
+
+  const txnsAfter = await db.execute<{ advisor_id: string; deal_value: string; converted_at: string; voided_at: string | null }>(
+    dsql`SELECT advisor_id, deal_value, converted_at, voided_at FROM transactions WHERE opportunity_id = ${oppAId}::uuid`,
+  );
+  const live = txnsAfter.filter((t) => t.voided_at === null);
+  check("re-winning does not create a second money row", txnsAfter.length === 1, txnsAfter);
+  check("the restored row is live again", live.length === 1, txnsAfter);
+  check("commission stayed with the advisor who earned it", live[0]?.advisor_id === txnBefore?.advisor_id, { before: txnBefore, after: live[0] });
+  check("deal value unchanged by the re-win", Number(live[0]?.deal_value) === 8000, live[0]);
+  check(
+    "converted_at unchanged — the deal stays in its original reporting period",
+    new Date(live[0]!.converted_at).getTime() === new Date(txnBefore!.converted_at).getTime(),
+    { before: txnBefore?.converted_at, after: live[0]?.converted_at },
+  );
+
+  // And the report agrees — the voided_at filter is applied everywhere it must be.
+  const report2 = await tom.req("GET", "/api/reports/converted?from=2000-01-01&to=2999-01-01");
+  const rows8000 = (report2.json.rows ?? []).filter((r: any) => r.dealValue === 8000);
+  check("converted report still shows exactly one row for the deal", rows8000.length === 1, rows8000);
+  check("converted report still credits the original earner", rows8000[0]?.advisorName === "Advisor B", rows8000[0]);
+
+  // ── Rejection notifies BOTH parties, and relatedId never points at a 403. ──
+  // A notification's relatedId is the deep-link target. Pointing a recipient at an
+  // opportunity they can't read navigates them straight into an error screen — the bug
+  // this discipline fixes. The rule: relatedId is set only when the recipient owns it.
+  const distinctCompany = `${company} LLC`;
+  const oppBDistinctId = oppBDistinct.json.opportunity?.id;
+  const rejectBlock = await a.req("POST", "/api/opportunities", {
+    contractor_company_name: distinctCompany,
+    product: "Smart Plan Survey",
+    state: "CO",
+  });
+  check("advisor A blocked on B's account (409)", rejectBlock.status === 409 && rejectBlock.json.code === "territory_blocked", rejectBlock);
+
+  // The CURRENT OWNER is told at raise time, not only once the account is already gone.
+  const [ownerAlert] = await db.execute<{ related_id: string | null }>(dsql`
+    SELECT n.related_id FROM notifications n
+    JOIN users u ON u.id = n.user_id
+    WHERE lower(u.email) = lower(${emailB}) AND n.type = 'takeover_requested'
+    ORDER BY n.created_at DESC LIMIT 1`);
+  check("owner notified when a takeover is requested", !!ownerAlert, ownerAlert);
+  check("owner's notification deep-links to the account they still own", ownerAlert?.related_id === oppBDistinctId, ownerAlert);
+
+  const claims4 = await tom.req("GET", "/api/claim-requests?status=pending");
+  const rejectClaim = (claims4.json.claimRequests ?? []).find((c: any) => c.matchedOpportunityId === oppBDistinctId);
+  const reject = await tom.req("POST", `/api/claim-requests/${rejectClaim?.id}/decide`, { decision: "rejected", decision_note: "Owner is actively working it" });
+  check("manager rejects the takeover", reject.status === 200 && reject.json.status === "rejected", reject.json);
+
+  const [requesterAlert] = await db.execute<{ related_id: string | null }>(dsql`
+    SELECT n.related_id FROM notifications n
+    JOIN users u ON u.id = n.user_id
+    WHERE lower(u.email) = lower(${emailA}) AND n.type = 'claim_decision'
+    ORDER BY n.created_at DESC LIMIT 1`);
+  const [keeperAlert] = await db.execute<{ related_id: string | null }>(dsql`
+    SELECT n.related_id FROM notifications n
+    JOIN users u ON u.id = n.user_id
+    WHERE lower(u.email) = lower(${emailB}) AND n.type = 'claim_decision'
+    ORDER BY n.created_at DESC LIMIT 1`);
+  check("rejected requester is notified", !!requesterAlert, requesterAlert);
+  check("rejected requester's notification does NOT link to an account they can't read", requesterAlert?.related_id === null, requesterAlert);
+  check("the advisor who keeps the account is notified too", !!keeperAlert, keeperAlert);
+  check("keeper's notification deep-links to their account", keeperAlert?.related_id === oppBDistinctId, keeperAlert);
 
   // Today endpoint works for an advisor.
   const today = await b.req("GET", "/api/today");
@@ -187,6 +309,8 @@ async function main() {
   await db.execute(dsql`DELETE FROM quotes WHERE advisor_id IN ${adv}`);
   await db.execute(dsql`DELETE FROM claim_requests WHERE requesting_advisor_id IN ${adv} OR current_owner_id IN ${adv}`);
   await db.execute(dsql`DELETE FROM activities WHERE advisor_id IN ${adv} OR opportunity_id IN ${opps}`);
+  // Takeover alerts log an email to communications — clean those up too.
+  await db.execute(dsql`DELETE FROM communications WHERE advisor_id IN ${adv} OR opportunity_id IN ${opps}`);
   await db.execute(dsql`DELETE FROM opportunities WHERE advisor_id IN ${adv}`);
   await db.execute(dsql`DELETE FROM commission_rates WHERE advisor_id IN ${adv}`);
   await db.execute(dsql`DELETE FROM notifications WHERE user_id IN ${adv}`);

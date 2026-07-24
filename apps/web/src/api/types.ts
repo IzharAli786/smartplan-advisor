@@ -363,18 +363,44 @@ export interface PendingClaim {
   createdAt: string;
 }
 
+/** What the requesting advisor typed on the form that was blocked. */
+export interface ClaimDraft {
+  contractor_company_name?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_cell?: string;
+  num_technicians?: number;
+  product?: string;
+  opportunity_value?: number;
+  state?: string;
+  notes?: string;
+}
+
 export interface ClaimRequest {
   id: string;
   matchedOpportunityId: string;
+  /** The company name as it stood WHEN THE REQUEST WAS RAISED. */
   matchedCompanyName: string;
   requestingAdvisorId: string;
   requesterName: string | null;
   currentOwnerId: string;
   currentOwnerName: string | null;
-  draft: Record<string, unknown>;
+  draft: ClaimDraft;
+  /** Which signal blocked the save. Null on rows raised before this was recorded. */
+  matchedOn: "company" | "email" | "phone" | null;
   status: "pending" | "approved" | "rejected";
   decisionNote: string | null;
   createdAt: string;
+  // ── Decision context: what the incumbent actually holds today. All nullable because
+  // the opportunity may have been deleted while the request sat in the queue.
+  currentCompanyName: string | null;
+  ownerStageLabel: string | null;
+  dealValue: number | null;
+  opportunitySource: string | null;
+  opportunityCreatedAt: string | null;
+  lastActivityAt: string | null;
+  activityCount: number;
+  quoteCount: number;
 }
 
 export interface NotificationItem {

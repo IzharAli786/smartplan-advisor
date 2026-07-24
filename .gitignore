@@ -10,3 +10,5 @@ coverage/
 apps/web/dev-dist/
 storage-dev/
 *.tsbuildinfo
+*.MD
+.claude/

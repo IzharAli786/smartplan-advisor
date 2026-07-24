@@ -1,0 +1,14 @@
+-- 0023_notification_takeover_enum.sql
+-- The current owner of an account must be alerted the MOMENT a takeover request is
+-- raised against it (§5.1), not only after it has already been reassigned.
+--
+-- 'claim_request' is the wrong type for that recipient: the web notification centre
+-- deep-links claim_request to /claims, which is RequireManager-gated — an advisor
+-- tapping it would land on a blocked page. A distinct value lets the owner's
+-- notification deep-link to the opportunity they still own instead.
+--
+-- Kept in its own file (like 0020 → 0021): ALTER TYPE ... ADD VALUE holds a lock on
+-- the type for the life of its transaction, and each migration file runs in one
+-- transaction. Splitting it means 0024's full-table backfill never shares that lock,
+-- and the new value is committed before any later migration or route uses it.
+ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'takeover_requested';

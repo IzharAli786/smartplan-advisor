@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, sql as dsql } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, sql as dsql } from "drizzle-orm";
 import { db, advisorSalesSetup, activityEntries, badgeTiers, transactions } from "@smart-crm/db";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -75,15 +75,28 @@ export async function computeSummary(orgId: string, advisorId: string) {
   const adjustedAnnual = Math.max(0, round2(setup.annualObjective - nonSalesHours * requiredPerHour));
   const personalAdjusted = Math.max(0, round2(setup.personalObjective - nonSalesHours * personalPerHour));
 
-  // Won deal value (YTD + MTD) from transactions.
+  // Won deal value (YTD + MTD) from transactions. Voided rows (deal moved back out of
+  // Won) are excluded — they still exist so a re-win restores the original earner.
   const [wonYear] = await db
     .select({ v: dsql<string>`COALESCE(sum(${transactions.dealValue}), 0)` })
     .from(transactions)
-    .where(and(eq(transactions.advisorId, advisorId), gte(transactions.convertedAt, dsql`${yearStart}::timestamptz`)));
+    .where(
+      and(
+        eq(transactions.advisorId, advisorId),
+        isNull(transactions.voidedAt),
+        gte(transactions.convertedAt, dsql`${yearStart}::timestamptz`),
+      ),
+    );
   const [wonMonth] = await db
     .select({ v: dsql<string>`COALESCE(sum(${transactions.dealValue}), 0)` })
     .from(transactions)
-    .where(and(eq(transactions.advisorId, advisorId), gte(transactions.convertedAt, dsql`${monthStart}::timestamptz`)));
+    .where(
+      and(
+        eq(transactions.advisorId, advisorId),
+        isNull(transactions.voidedAt),
+        gte(transactions.convertedAt, dsql`${monthStart}::timestamptz`),
+      ),
+    );
   const wonYtd = round2(Number(wonYear?.v ?? 0));
   const wonMtd = round2(Number(wonMonth?.v ?? 0));
 

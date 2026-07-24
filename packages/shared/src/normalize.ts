@@ -42,6 +42,35 @@ export function normalizeCompanyName(raw: string): string {
 }
 
 /**
+ * Territory-matching key (§5.1): lowercase, strip punctuation, collapse spaces —
+ * but KEEP every token, including legal/industry suffixes.
+ *
+ *   "Acme, Inc."  === "acme inc"        → same account, blocks
+ *   "Acme Inc"    !== "Acme LLC"        → different accounts, no block
+ *   "Acme HVAC"   !== "Acme Plumbing"   → different accounts, no block
+ *
+ * Deliberately DIFFERENT from normalizeCompanyName, which deletes noise tokens and
+ * would collapse "Acme Inc" and "Acme LLC" onto one key. This one backs the exact
+ * duplicate check that blocks an advisor's save, so a false match stops real work —
+ * it must only fire when the two names are genuinely the same string.
+ *
+ * Use it for the territory block ONLY. Cross-system lookups (SmartPlan/Stripe, which
+ * send legal billing names) still want the tolerant normalizeCompanyName.
+ */
+export function normalizeCompanyKey(raw: string): string {
+  const cleaned = raw
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Non-Latin / punctuation-only names clean to "" — fall back to the raw lowercased
+  // name so distinct companies never collapse onto one empty key (same guard the
+  // SmartPlan activation ingest uses).
+  return cleaned || raw.trim().toLowerCase();
+}
+
+/**
  * Best-effort E.164 normalization for US numbers (the advisor roster is US-based).
  * Returns null when we can't confidently normalize, so matching skips it rather than
  * matching on garbage.

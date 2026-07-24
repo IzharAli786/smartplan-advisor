@@ -5,8 +5,16 @@ name: Deploy Advisor (Windows)
 # Flow (mirrors the SmartPlan deploy workflows, adapted for the pnpm monorepo):
 #   1. Ubuntu runner: pnpm install + build the web PWA (Vite).
 #   2. Tar the source + the built web bundle (no node_modules / .git / .env).
-#   3. SCP the tarball to the Windows box.
-#   4. SSH: extract, pnpm install, run DB migrations, (re)start PM2.
+#   3. Phase 1 — DATABASE: ship migrations/runner, pg_dump, apply pending migrations.
+#   4. Phase 2 — APP: SCP the tarball, extract, pnpm install, PM2 reload.
+#
+# ORDER MATTERS (zero-downtime on failure): the database is backed up and
+# migrated FIRST, while the old app is still running and its old source is still
+# on disk. Only after the DB succeeds do we extract the new bundle and reload
+# PM2. If backup or migration fails, the deploy goes red and the site genuinely
+# keeps serving the old version — the app files were never touched.
+# (Phase 1 only overwrites db/migrations/*.sql, db/src/migrate.ts and
+# deploy/db-deploy.ps1 — none of which the running API reads.)
 #
 # The Fastify API is NOT compiled here — it runs from TypeScript source via tsx
 # (see ecosystem.config.cjs). Only the web bundle is built, because IIS serves it
@@ -19,6 +27,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      allow_destructive:
+        description: "Allow migrations containing DROP/TRUNCATE to run (deliberate data loss)"
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   deploy:
@@ -61,12 +75,12 @@ jobs:
             package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json .npmrc \
             ecosystem.config.cjs
 
-      # Just ensure the folder exists. We deliberately DO NOT delete the old bundle
-      # or stop the API here: the tarball is extracted OVER the existing files in the
-      # next step, so the currently-live site keeps serving until the new files land
-      # and PM2 reloads at the very end. If anything fails before then, the old
-      # release is still running (rollback = re-run this workflow on the prior commit).
-      - name: Ensure target dir exists on the box
+      # ---- Phase 1: database (old app keeps running throughout) ----
+
+      # Wipe + recreate migrations/ so a file deleted from the repo can't linger on
+      # the box and get re-applied. db/src and deploy/ are only ensured, never wiped
+      # (db/src holds the live schema.ts the running API reads).
+      - name: Prepare migration folders on the box
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -74,8 +88,65 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
           script: |
-            powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor' | Out-Null"
+            powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor' | Out-Null; Remove-Item -Recurse -Force 'C:\smartplan-advisor\db\migrations' -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor\db\migrations' | Out-Null; New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor\db\src' | Out-Null; New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor\deploy' | Out-Null; Write-Host 'Migration folders ready'"
 
+      - name: Upload db/migrations to the box
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "db/migrations/*"
+          target: "C:/smartplan-advisor/db/migrations"
+          strip_components: 2
+
+      # The runner + its env loader only. The API never imports either at runtime,
+      # so dropping the new versions into the still-live tree is safe. The rest of
+      # db/src (schema.ts and friends) is swapped in Phase 2 with everything else.
+      - name: Upload migration runner to the box
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "db/src/migrate.ts,db/src/loadenv.ts"
+          target: "C:/smartplan-advisor/db/src"
+          strip_components: 2
+
+      - name: Upload deploy/ scripts to the box
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "deploy/db-deploy.ps1"
+          target: "C:/smartplan-advisor/deploy"
+          strip_components: 1
+
+      # Back up (box's own pg_dump → C:\smartplan-backups\advisor-<stamp>.sql,
+      # keeps last 10), then apply pending migrations. The old app is STILL
+      # RUNNING and its source is untouched — any failure here (backup error,
+      # un-baselined guard exit 3, destructive guard, SQL error) stops the deploy
+      # with zero downtime.
+      - name: Backup and migrate the DB (app still running)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            powershell -NoProfile -Command "Set-Location 'C:\smartplan-advisor'; $env:ALLOW_DESTRUCTIVE = '${{ inputs.allow_destructive }}'; powershell -NoProfile -File deploy\db-deploy.ps1 -Backup -Prefix advisor; if ($LASTEXITCODE -ne 0) { exit 1 }"
+
+      # ---- Phase 2: swap the app (DB is ready; downtime = a PM2 reload) ----
+
+      # We deliberately DO NOT delete the old bundle or stop the API here: the
+      # tarball is extracted OVER the existing files, so the currently-live site
+      # keeps serving until the new files land and PM2 reloads at the very end.
+      # Rollback = re-run this workflow on the prior commit.
       - name: Upload bundle to server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -86,7 +157,7 @@ jobs:
           source: "deploy.tgz"
           target: "C:/smartplan-advisor"
 
-      - name: Extract, install, migrate, restart
+      - name: Extract, install, restart
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -96,11 +167,11 @@ jobs:
           # FAIL-FAST: Windows PowerShell 5.1 does NOT turn a native command's
           # non-zero exit into a terminating error, and `;` does not short-circuit,
           # so we check $LASTEXITCODE after every native command and `exit 1` on
-          # failure. Otherwise a failed `pnpm install` / `pnpm db:migrate` would be
-          # swallowed, PM2 would reload the new code against an un-migrated schema,
-          # and the Actions run would still go green.
+          # failure. Otherwise a failed `pnpm install` would be swallowed, PM2 would
+          # reload against a half-installed tree, and the run would still go green.
           #   - tar.exe (bsdtar) ships with Windows 10 / Server 2019+.
-          #   - db:migrate is the forward-only, NON-interactive, idempotent runner.
+          #   - Migrations already ran in Phase 1, deliberately BEFORE these files
+          #     were swapped — there is no second db:migrate here.
           #   - startOrReload handles both first-run (start) and updates (reload).
           script: |
-            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Set-Location 'C:\smartplan-advisor'; $v=[version](node -p 'process.versions.node'); if ($v -lt [version]'20.6') { Write-Error ('Node >=20.6 required for --import tsx, found ' + $v); exit 1 }; tar -xzf deploy.tgz; if ($LASTEXITCODE -ne 0) { exit 1 }; Remove-Item deploy.tgz -Force; pnpm install --frozen-lockfile --prod=false; if ($LASTEXITCODE -ne 0) { exit 1 }; pnpm db:migrate; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 startOrReload ecosystem.config.cjs --update-env; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 save; pm2 list"
+            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Set-Location 'C:\smartplan-advisor'; $v=[version](node -p 'process.versions.node'); if ($v -lt [version]'20.6') { Write-Error ('Node >=20.6 required for --import tsx, found ' + $v); exit 1 }; tar -xzf deploy.tgz; if ($LASTEXITCODE -ne 0) { exit 1 }; Remove-Item deploy.tgz -Force; pnpm install --frozen-lockfile --prod=false; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 startOrReload ecosystem.config.cjs --update-env; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 save; pm2 list"

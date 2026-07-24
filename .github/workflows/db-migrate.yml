@@ -1,0 +1,56 @@
+name: DB Migrate — Status / Doctor / Baseline (manual)
+
+# One-click helper that runs the migration runner ON A BOX over SSH.
+# (The databases are localhost on the box, so this can't run from the CI runner.)
+# The box must already have db/migrations + db/src/migrate.ts from a prior deploy.
+#
+#   action = status    Safe, read-only. Prints which migration files the box has
+#                      recorded as applied vs still unrecorded.
+#   action = doctor    Safe, read-only. Verifies the live schema contains marker
+#                      objects that recent migrations should have created. This is
+#                      also the fastest way to answer "is this 500 a missing
+#                      column?". ALWAYS run it before baseline — baseline stamps
+#                      files as applied WITHOUT proof, so a box that silently
+#                      missed a migration would have the gap hidden forever.
+#   action = baseline  One-time per box: records ALL current migration files as
+#                      "already applied" WITHOUT running their SQL. Run only after
+#                      doctor is clean. From then on only NEW files ever execute.
+#
+# Per-box order: doctor → (hand-fix any ✗) → doctor again → baseline → deploy.
+#
+# Uses the same SSH_* secrets as the deploy workflows — no database URL needed
+# (the runner reads DATABASE_URL from the box's own .env).
+#
+# Mirrors .github/workflows/db-baseline.yml in the SmartPlan repo.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which box: prod (advise.smartplan.software) or dev (advisedev...)"
+        type: choice
+        required: true
+        options: [prod, dev]
+      action:
+        description: "status/doctor = read-only checks · baseline = stamp existing files as applied (after doctor is clean)"
+        type: choice
+        required: true
+        default: status
+        options: [status, doctor, baseline]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run migrate ${{ inputs.action }} on ${{ inputs.environment }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          # Pick the box's app folder from the chosen environment, then run the
+          # runner there. It prints the target DB (host/name, no credentials) so
+          # you can confirm it in the log before trusting the result.
+          script: |
+            powershell -NoProfile -Command "Set-Location '${{ inputs.environment == 'prod' && 'C:\smartplan-advisor' || 'C:\smartplan-advisor-dev' }}'; pnpm db:migrate:${{ inputs.action }}; if ($LASTEXITCODE -ne 0) { exit 1 }"

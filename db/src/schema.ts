@@ -34,6 +34,9 @@ export const notificationType = pgEnum("notification_type", [
   "follow_up",
   "next_step",
   "quote_update",
+  // Raised against the CURRENT owner. Distinct from claim_request (which the web app
+  // deep-links to the manager-only /claims queue) so the owner lands on their account.
+  "takeover_requested",
 ]);
 export const leadStatus = pgEnum("lead_status", ["new", "claimed", "converted", "dismissed"]);
 export const fieldEntity = pgEnum("field_entity", ["opportunity", "lead"]);
@@ -233,7 +236,12 @@ export const opportunities = pgTable("opportunities", {
   orgId: uuid("org_id").notNull(),
   advisorId: uuid("advisor_id").notNull(),
   contractorCompanyName: text("contractor_company_name").notNull(),
+  /** Tolerant key (noise tokens dropped) — leads, imports, SmartPlan/Stripe lookups. */
   companyNameNormalized: text("company_name_normalized").notNull(),
+  /** Exact territory key (case + punctuation only) — the duplicate block. See
+   *  normalizeCompanyKey() in @smart-crm/shared. NOT NULL on purpose: it makes tsc
+   *  fail on any insert site that forgets to set it. */
+  companyKey: text("company_key").notNull(),
   contactName: text("contact_name"),
   contactEmail: text("contact_email"),
   contactEmailNormalized: text("contact_email_normalized"),
@@ -302,6 +310,9 @@ export const claimRequests = pgTable("claim_requests", {
   requestingAdvisorId: uuid("requesting_advisor_id").notNull(),
   currentOwnerId: uuid("current_owner_id").notNull(),
   draft: jsonb("draft").notNull(),
+  /** Which signal blocked the save: "company" | "email" | "phone". Persisted at raise
+   *  time — recomputing at read time could disagree with what the advisor was told. */
+  matchedOn: text("matched_on"),
   status: claimStatus("status").notNull().default("pending"),
   decidedBy: uuid("decided_by"),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
@@ -330,6 +341,10 @@ export const transactions = pgTable("transactions", {
   commissionRateSnapshot: numeric("commission_rate_snapshot").notNull(),
   commissionAmount: numeric("commission_amount").notNull(),
   commissionTierLabel: text("commission_tier_label"),
+  /** Set when the deal is moved back OUT of a won stage. The row is never deleted, so a
+   *  later re-win restores the ORIGINAL earner rather than crediting the current owner.
+   *  EVERY reader must filter `voided_at IS NULL` — see convert.ts for the reader list. */
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

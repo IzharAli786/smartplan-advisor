@@ -62,7 +62,12 @@ jobs:
             package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json .npmrc \
             ecosystem.dev.config.cjs
 
-      - name: Ensure target dir exists on the box
+      # ---- Phase 1: database (old app keeps running throughout) ----
+      # Same shape as deploy-advisor.yml; see the ORDER MATTERS note there.
+      # No -Backup here — dev is a testing instance. Add `-Backup -Prefix advisor-dev`
+      # to the db-deploy.ps1 call below if that ever stops being true.
+
+      - name: Prepare migration folders on the dev box
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -70,7 +75,52 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
           script: |
-            powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor-dev' | Out-Null"
+            powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor-dev' | Out-Null; Remove-Item -Recurse -Force 'C:\smartplan-advisor-dev\db\migrations' -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor-dev\db\migrations' | Out-Null; New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor-dev\db\src' | Out-Null; New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor-dev\deploy' | Out-Null; Write-Host 'Migration folders ready'"
+
+      - name: Upload db/migrations to the dev box
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "db/migrations/*"
+          target: "C:/smartplan-advisor-dev/db/migrations"
+          strip_components: 2
+
+      - name: Upload migration runner to the dev box
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "db/src/migrate.ts,db/src/loadenv.ts"
+          target: "C:/smartplan-advisor-dev/db/src"
+          strip_components: 2
+
+      - name: Upload deploy/ scripts to the dev box
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "deploy/db-deploy.ps1"
+          target: "C:/smartplan-advisor-dev/deploy"
+          strip_components: 1
+
+      - name: Migrate the dev DB (app still running)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            powershell -NoProfile -Command "Set-Location 'C:\smartplan-advisor-dev'; powershell -NoProfile -File deploy\db-deploy.ps1; if ($LASTEXITCODE -ne 0) { exit 1 }"
+
+      # ---- Phase 2: swap the app ----
 
       - name: Upload bundle to server
         uses: appleboy/scp-action@v0.1.7
@@ -82,7 +132,9 @@ jobs:
           source: "deploy.tgz"
           target: "C:/smartplan-advisor-dev"
 
-      - name: Extract, install, migrate, restart
+      # Migrations already ran in Phase 1, before these files were swapped —
+      # there is no second db:migrate here.
+      - name: Extract, install, restart
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -90,4 +142,4 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
           script: |
-            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Set-Location 'C:\smartplan-advisor-dev'; $v=[version](node -p 'process.versions.node'); if ($v -lt [version]'20.6') { Write-Error ('Node >=20.6 required for --import tsx, found ' + $v); exit 1 }; tar -xzf deploy.tgz; if ($LASTEXITCODE -ne 0) { exit 1 }; Remove-Item deploy.tgz -Force; pnpm install --frozen-lockfile --prod=false; if ($LASTEXITCODE -ne 0) { exit 1 }; pnpm db:migrate; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 startOrReload ecosystem.dev.config.cjs --update-env; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 save; pm2 list"
+            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Set-Location 'C:\smartplan-advisor-dev'; $v=[version](node -p 'process.versions.node'); if ($v -lt [version]'20.6') { Write-Error ('Node >=20.6 required for --import tsx, found ' + $v); exit 1 }; tar -xzf deploy.tgz; if ($LASTEXITCODE -ne 0) { exit 1 }; Remove-Item deploy.tgz -Force; pnpm install --frozen-lockfile --prod=false; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 startOrReload ecosystem.dev.config.cjs --update-env; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 save; pm2 list"

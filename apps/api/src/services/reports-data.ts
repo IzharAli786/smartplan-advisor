@@ -71,6 +71,7 @@ async function getTransactions(orgId: string, from: string, to: string): Promise
     JOIN opportunities o ON o.id = t.opportunity_id
     JOIN users u ON u.id = t.advisor_id
     WHERE t.org_id = ${orgId}
+      AND t.voided_at IS NULL
       AND t.converted_at >= ${from}::timestamptz AND t.converted_at <= ${to}::timestamptz
     ORDER BY t.converted_at DESC
   `);

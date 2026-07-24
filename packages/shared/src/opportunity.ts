@@ -21,6 +21,14 @@ const usState = z
 
 const optionalText = z.string().trim().max(2000).optional().or(z.literal("").transform(() => undefined));
 
+/**
+ * Notes get a much larger cap than other free text: approving a takeover appends the
+ * requesting advisor's captured intake as a dated block (§5.1). opportunityUpdateSchema
+ * shares this base, so a 2000-char cap would make the new owner unable to save ANY edit
+ * once the composed notes crossed it — every PATCH would 400 on a field they never touched.
+ */
+const notesText = z.string().trim().max(20000).optional().or(z.literal("").transform(() => undefined));
+
 /** A single product line on an opportunity: a product + how many technicians it covers. */
 export const opportunityProductLineSchema = z.object({
   product: z.string().trim().min(1, "Pick a product").max(160),
@@ -50,7 +58,7 @@ const opportunityDraftBase = z.object({
   /** Auto-computed from product_lines server-side; an explicit value still overrides. */
   opportunity_value: z.coerce.number().min(0).max(1_000_000_000).optional(),
   state: usState,
-  notes: optionalText,
+  notes: notesText,
   follow_up_at: z.coerce.date().optional(),
   next_review_at: z.coerce.date().nullish(),
   review_notes: optionalText,

@@ -5,6 +5,7 @@ import {
   importAnalyzeSchema,
   importCommitSchema,
   normalizeCompanyName,
+  normalizeCompanyKey,
   normalizeEmail,
   normalizePhoneE164,
   computeNextStep,
@@ -77,12 +78,13 @@ export async function registerImportRoutes(app: FastifyInstance) {
         continue;
       }
       const companyNorm = normalizeCompanyName(row.contractor_company_name);
+      const companyKey = normalizeCompanyKey(row.contractor_company_name);
       const emailNorm = normalizeEmail(row.contact_email);
       const cellE164 = normalizePhoneE164(row.contact_cell);
       const { ownMatch, conflict } = await findMatches({
         orgId: user.orgId,
         requestingAdvisorId: row.advisor_id,
-        companyNameNormalized: companyNorm,
+        companyKey,
         contactEmailNormalized: emailNorm,
         contactCellE164: cellE164,
       });
@@ -109,6 +111,7 @@ export async function registerImportRoutes(app: FastifyInstance) {
           advisorId: row.advisor_id,
           contractorCompanyName: row.contractor_company_name,
           companyNameNormalized: companyNorm,
+          companyKey,
           contactName: row.contact_name ?? null,
           contactEmail: row.contact_email ?? null,
           contactEmailNormalized: emailNorm,

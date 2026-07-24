@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext.tsx";
 import { useApi } from "../hooks/useApi.ts";
 import { api } from "../api/client.ts";
 import { Card, EmptyState, ErrorBanner, PageHead, Spinner } from "../components/ui.tsx";
@@ -7,6 +8,7 @@ import type { NotificationItem } from "../api/types.ts";
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
+  const { isManager } = useAuth();
   const { data, loading, error, reload } = useApi<{ notifications: NotificationItem[]; unread: number }>(
     "/api/notifications",
   );
@@ -16,10 +18,21 @@ export default function NotificationsPage() {
       await api.post(`/api/notifications/${n.id}/read`);
       reload();
     }
-    // Deep-link: claim decisions / reassignments point at an opportunity.
-    if ((n.type === "claim_decision" || n.type === "account_reassigned" || n.type === "next_step" || n.type === "follow_up") && n.relatedId) {
+    // Deep-link. relatedId is deliberately NULL on notifications whose recipient can't
+    // read the record — an advisor who just lost an account, or one whose takeover was
+    // declined, 403s on its detail route. Guarding on relatedId is what keeps them on
+    // this page instead of dropping them into an error screen.
+    const opensOpportunity =
+      n.type === "claim_decision" ||
+      n.type === "account_reassigned" ||
+      n.type === "takeover_requested" ||
+      n.type === "next_step" ||
+      n.type === "follow_up";
+    if (opensOpportunity && n.relatedId) {
       navigate(`/opportunity/${n.relatedId}`);
-    } else if (n.type === "claim_request") {
+    } else if (n.type === "claim_request" && isManager) {
+      // /claims is manager-only; the requesting advisor gets this type too as their own
+      // acknowledgement, and sending them there would land on a blocked page.
       navigate("/claims");
     }
   }
