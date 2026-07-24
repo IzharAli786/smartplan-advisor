@@ -1,0 +1,93 @@
+name: Deploy Advisor DEV (Windows)
+
+# Auto-deploys https://advisedev.smartplan.software on every push to the `dev`
+# branch. Mirrors deploy-advisor.yml (prod), with three differences:
+#   1. target folder is C:\smartplan-advisor-dev (not C:\smartplan-advisor)
+#   2. the built web.config reverse-proxy port is patched 5052 -> 5053, because
+#      the dev API runs on 5053 (prod is on 5052) on the same box.
+#   3. PM2 uses ecosystem.dev.config.cjs (process "smartplan-advisor-dev").
+#
+# The dev box .env (C:\smartplan-advisor-dev\.env) is NOT shipped — it lives on the
+# box and holds the dev DATABASE_URL (smartcrm_advisor_dev), API_PORT=5053,
+# WEB_ORIGIN=https://advisedev..., and the dev SmartPlan pairing.
+#
+# Reuses the SAME repo secrets as the prod workflow:
+#   SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, SSH_PORT
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prod=false
+
+      - name: Build web PWA
+        run: pnpm --filter @smart-crm/web build
+
+      # The dev API listens on 5053, so the reverse-proxy target in the built
+      # web.config must point there instead of prod's 5052.
+      - name: Point dev web.config at API port 5053
+        run: |
+          sed -i 's#localhost:5052#localhost:5053#g' apps/web/dist/web.config
+          grep -q 'localhost:5053' apps/web/dist/web.config
+
+      - name: Package deploy bundle
+        run: |
+          tar \
+            --exclude='*/node_modules' \
+            --exclude='*/node_modules/*' \
+            --exclude='apps/api/dist' \
+            --exclude='*/storage-dev' \
+            --exclude='*/storage-dev/*' \
+            -czf deploy.tgz \
+            apps packages db \
+            package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json .npmrc \
+            ecosystem.dev.config.cjs
+
+      - name: Ensure target dir exists on the box
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'C:\smartplan-advisor-dev' | Out-Null"
+
+      - name: Upload bundle to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "deploy.tgz"
+          target: "C:/smartplan-advisor-dev"
+
+      - name: Extract, install, migrate, restart
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Set-Location 'C:\smartplan-advisor-dev'; $v=[version](node -p 'process.versions.node'); if ($v -lt [version]'20.6') { Write-Error ('Node >=20.6 required for --import tsx, found ' + $v); exit 1 }; tar -xzf deploy.tgz; if ($LASTEXITCODE -ne 0) { exit 1 }; Remove-Item deploy.tgz -Force; pnpm install --frozen-lockfile --prod=false; if ($LASTEXITCODE -ne 0) { exit 1 }; pnpm db:migrate; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 startOrReload ecosystem.dev.config.cjs --update-env; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 save; pm2 list"
