@@ -98,13 +98,33 @@ function Test-Healthy([int]$port, [int]$timeoutSec) {
   return $false
 }
 
+# DO NOT reintroduce `pm2 jlist | ConvertFrom-Json` here. PowerShell 5.1's
+# ConvertFrom-Json compares object keys case-INSENSITIVELY, and every PM2 process
+# entry carries a full Windows environment block containing BOTH `USERNAME` and
+# `username`. So it throws
+#     Cannot convert the JSON string because a dictionary that was converted from
+#     the string contains the duplicated keys 'USERNAME' and 'username'.
+# on EVERY call on a Windows box — not intermittently. The previous version
+# swallowed that in `catch { return @() }`, so this function reported "no
+# instances" 100% of the time. The 2026-07-25 deploy proved it: the box printed
+#     roll: smartplan-advisor-dev is not running - starting it from ...
+# about a process that was plainly running as pm_id 4. It only appeared to work
+# because `pm2 start` on an already-defined app degrades into a restart — so the
+# deploy went green while never rolling anything.
+#
+# `pm2 id <name>` needs no JSON parser. It prints "[ 4 ]" for one instance,
+# "[ 6, 7 ]" for a cluster, and "[]" for an unknown app (exit 0 in all cases).
 function Get-InstanceIds([string]$app) {
-  $raw = (& pm2 jlist 2>$null | Out-String).Trim()
-  # PM2 can print warnings before the JSON, so start at the array.
-  $start = $raw.IndexOf('[')
-  if ($start -lt 0) { return @() }
-  try { $procs = $raw.Substring($start) | ConvertFrom-Json } catch { return @() }
-  return @($procs | Where-Object { $_.name -eq $app } | Sort-Object pm_id | ForEach-Object { $_.pm_id })
+  $raw = (& pm2 id $app 2>$null | Out-String)
+  if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
+  # Match only bracket groups made of digits/commas/space, and keep the LAST one:
+  # PM2 prefixes warnings like "[PM2] ..." which must not be mistaken for the id
+  # array. "[]" matches with empty content and correctly yields no ids.
+  $inner = $null
+  foreach ($m in [regex]::Matches($raw, '\[([0-9,\s]*)\]')) { $inner = $m.Groups[1].Value }
+  if ($null -eq $inner) { return @() }
+  $ids = @([regex]::Matches($inner, '\d+') | ForEach-Object { [int]$_.Value })
+  return @($ids | Sort-Object)
 }
 
 if (-not (Test-Path $Config)) { Write-Error "roll: ecosystem file not found: $Config"; exit 1 }
