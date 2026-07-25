@@ -12,3 +12,7 @@ storage-dev/
 *.tsbuildinfo
 *.MD
 .claude/
+# core.ignorecase=true on macOS/Windows, so the *.MD rule above swallows every
+# NEW *.md file too (already-tracked ones are unaffected). Un-ignore docs that
+# must ship with the code.
+!db/migrations/README.md

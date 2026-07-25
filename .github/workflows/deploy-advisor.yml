@@ -1,6 +1,15 @@
 name: Deploy Advisor (Windows)
 
-# Auto-deploys https://advise.smartplan.software on every push to main.
+# Deploys https://advise.smartplan.software — PRODUCTION.
+#
+# MANUAL TRIGGER ONLY. This used to run on every push to main; it no longer does.
+# Production deploys happen when someone decides it is the right time, from the
+# Actions tab ("Run workflow"), not as a side effect of merging. This mirrors the
+# SmartPlan repo, where deploy-portal.yml (production) is likewise
+# workflow_dispatch-only while deploy.yml (dev) auto-runs on main.
+#
+# Pushing to main deploys ADVISE-DEV (advisedev.smartplan.software) via
+# deploy-advisor-dev.yml. Production is deliberately one deliberate click away.
 #
 # Flow (mirrors the SmartPlan deploy workflows, adapted for the pnpm monorepo):
 #   1. Ubuntu runner: pnpm install + build the web PWA (Vite).
@@ -24,8 +33,8 @@ name: Deploy Advisor (Windows)
 #   SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, SSH_PORT
 
 on:
-  push:
-    branches: [main]
+  # NO `push:` trigger — see the header. Adding one back would make every merge
+  # to main deploy production.
   workflow_dispatch:
     inputs:
       allow_destructive:
@@ -122,7 +131,11 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          source: "deploy/db-deploy.ps1"
+          # Comma-separated, NOT a glob: every script this deploy runs has to be
+          # named here or it silently will not exist on the box. pm2-roll.ps1 is
+          # used by Phase 2 below but ships here in Phase 1, so deploy\ has one
+          # upload step rather than two.
+          source: "deploy/db-deploy.ps1,deploy/pm2-roll.ps1"
           target: "C:/smartplan-advisor/deploy"
           strip_components: 1
 
@@ -172,6 +185,15 @@ jobs:
           #   - tar.exe (bsdtar) ships with Windows 10 / Server 2019+.
           #   - Migrations already ran in Phase 1, deliberately BEFORE these files
           #     were swapped — there is no second db:migrate here.
-          #   - startOrReload handles both first-run (start) and updates (reload).
+          #   - deploy\pm2-roll.ps1 replaced `pm2 startOrReload`. Reload on Windows
+          #     does NOT drain: PM2 renames the retiring worker's pm_id to a string,
+          #     which makes it skip the graceful IPC path and fall back to
+          #     process.kill() — an unconditional TerminateProcess there. The roll
+          #     script restarts by numeric pm_id instead, which does drain via
+          #     apps/api/src/lifecycle.ts, and health-gates the result. It still
+          #     covers first-run (pm2 start) the way startOrReload did. This app is
+          #     currently fork/1-instance, so the roll is a brief but GRACEFUL
+          #     restart; it becomes zero-downtime the moment CLUSTERED flips in
+          #     ecosystem.config.cjs, with no change needed here.
           script: |
-            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Set-Location 'C:\smartplan-advisor'; $v=[version](node -p 'process.versions.node'); if ($v -lt [version]'20.6') { Write-Error ('Node >=20.6 required for --import tsx, found ' + $v); exit 1 }; tar -xzf deploy.tgz; if ($LASTEXITCODE -ne 0) { exit 1 }; Remove-Item deploy.tgz -Force; pnpm install --frozen-lockfile --prod=false; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 startOrReload ecosystem.config.cjs --update-env; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 save; pm2 list"
+            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Set-Location 'C:\smartplan-advisor'; $v=[version](node -p 'process.versions.node'); if ($v -lt [version]'20.6') { Write-Error ('Node >=20.6 required for --import tsx, found ' + $v); exit 1 }; tar -xzf deploy.tgz; if ($LASTEXITCODE -ne 0) { exit 1 }; Remove-Item deploy.tgz -Force; pnpm install --frozen-lockfile --prod=false; if ($LASTEXITCODE -ne 0) { exit 1 }; powershell -NoProfile -File deploy\pm2-roll.ps1 -AppName smartplan-advisor -Config ecosystem.config.cjs; if ($LASTEXITCODE -ne 0) { exit 1 }"

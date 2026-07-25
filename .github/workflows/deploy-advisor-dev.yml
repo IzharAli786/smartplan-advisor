@@ -1,7 +1,15 @@
 name: Deploy Advisor DEV (Windows)
 
-# Auto-deploys https://advisedev.smartplan.software on every push to the `dev`
-# branch. Mirrors deploy-advisor.yml (prod), with three differences:
+# Auto-deploys https://advisedev.smartplan.software on every push to `main` or
+# `dev`.
+#
+# `main` is in that list on purpose: production (deploy-advisor.yml) is
+# workflow_dispatch-only, so main is a DEV-deploying branch here, exactly as it
+# is in the SmartPlan repo. Merging to main gets you a dev deploy and nothing
+# else; production is a deliberate manual run. `dev` is kept so the existing
+# branch workflow still works.
+#
+# Mirrors deploy-advisor.yml (prod), with three differences:
 #   1. target folder is C:\smartplan-advisor-dev (not C:\smartplan-advisor)
 #   2. the built web.config reverse-proxy port is patched 5052 -> 5053, because
 #      the dev API runs on 5053 (prod is on 5052) on the same box.
@@ -16,7 +24,7 @@ name: Deploy Advisor DEV (Windows)
 
 on:
   push:
-    branches: [dev]
+    branches: [main, dev]
   workflow_dispatch:
 
 jobs:
@@ -106,7 +114,11 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          source: "deploy/db-deploy.ps1"
+          # Comma-separated, NOT a glob: every script this deploy runs has to be
+          # named here or it silently will not exist on the box. pm2-roll.ps1 is
+          # used by Phase 2 below but ships here in Phase 1, so deploy\ has one
+          # upload step rather than two.
+          source: "deploy/db-deploy.ps1,deploy/pm2-roll.ps1"
           target: "C:/smartplan-advisor-dev/deploy"
           strip_components: 1
 
@@ -141,5 +153,12 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
+          # `pm2 startOrReload` was replaced by deploy\pm2-roll.ps1. Reload on
+          # Windows does NOT drain: PM2 renames the retiring worker's pm_id to a
+          # string, which makes it skip the graceful IPC path and fall back to
+          # process.kill() — an unconditional TerminateProcess there. The roll
+          # script restarts workers one at a time by numeric pm_id instead, which
+          # does drain via apps/api/src/lifecycle.ts, and health-gates each one.
+          # It also covers the first-run case startOrReload used to handle.
           script: |
-            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Set-Location 'C:\smartplan-advisor-dev'; $v=[version](node -p 'process.versions.node'); if ($v -lt [version]'20.6') { Write-Error ('Node >=20.6 required for --import tsx, found ' + $v); exit 1 }; tar -xzf deploy.tgz; if ($LASTEXITCODE -ne 0) { exit 1 }; Remove-Item deploy.tgz -Force; pnpm install --frozen-lockfile --prod=false; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 startOrReload ecosystem.dev.config.cjs --update-env; if ($LASTEXITCODE -ne 0) { exit 1 }; pm2 save; pm2 list"
+            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Set-Location 'C:\smartplan-advisor-dev'; $v=[version](node -p 'process.versions.node'); if ($v -lt [version]'20.6') { Write-Error ('Node >=20.6 required for --import tsx, found ' + $v); exit 1 }; tar -xzf deploy.tgz; if ($LASTEXITCODE -ne 0) { exit 1 }; Remove-Item deploy.tgz -Force; pnpm install --frozen-lockfile --prod=false; if ($LASTEXITCODE -ne 0) { exit 1 }; powershell -NoProfile -File deploy\pm2-roll.ps1 -AppName smartplan-advisor-dev -Config ecosystem.dev.config.cjs; if ($LASTEXITCODE -ne 0) { exit 1 }"
