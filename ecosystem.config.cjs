@@ -19,32 +19,43 @@
 // from C:\smartplan-advisor\.env, which the app loads itself — see
 // apps/api/src/loadenv.ts (it walks up from the source file to find the root .env).
 //
-// WHY THIS IS STILL fork WHILE DEV IS cluster
-// -------------------------------------------
-// This app is paired with portal.smartplan.software, which is still a single
-// fork-mode process. Clustering the two halves of a pair independently buys
-// nothing and doubles the number of things that can be wrong during the one
-// window where it matters, so prod flips WITH portal, not before it. Everything
-// else in this change — the readiness signal, the graceful drain, the capped
-// pool — is live here today and is worth having in fork mode on its own: before
-// it, every deploy killed this process mid-request with no drain at all.
+// CLUSTERED — AND WHY SETTING IT true IS NOT THE SAME AS BEING CLUSTERED
+// ----------------------------------------------------------------------
+// This was false while portal.smartplan.software was still a single fork-mode
+// process: clustering the two halves of a pair independently buys nothing and
+// doubles what can be wrong in the one window that matters. It is now true
+// because portal is being cut over with it.
 //
-// TO FLIP TO CLUSTER (do it with the portal cutover, in a maintenance window):
-//   1. Set CLUSTERED = true below and deploy.
-//   2. On the box, once:  pm2 delete smartplan-advisor
-//                         pm2 start ecosystem.config.cjs
-//                         pm2 save
-//      exec_mode cannot change in place — `startOrReload` will otherwise keep
-//      running the existing fork process and silently ignore the setting.
+// Flipping this constant is INERT ON ITS OWN. Deploys run deploy\pm2-roll.ps1,
+// which for an already-running app issues `pm2 restart`, and restart reuses
+// PM2's IN-MEMORY copy of the config. Code changes land; exec_mode, instances
+// and the env: block below do not. So a deploy carrying this change leaves the
+// box exactly as it was — which is the point: the ordering below is enforced by
+// the runbook, not by this file, and shipping the flag early cannot surprise
+// anyone.
+//
+// THE ORDER IS NOT OPTIONAL, and the reason is wait_ready:
+//   1. Deploy this build to prod first, so the box is running app code that
+//      actually calls process.send('ready') (apps/api/src/lifecycle.ts).
+//   2. THEN, on the box, once:  pm2 delete smartplan-advisor
+//                               pm2 start ecosystem.config.cjs
+//                               pm2 save
+//      exec_mode cannot change in place. ~10s of downtime, once, ever.
 //   3. Verify:  pm2 describe smartplan-advisor   ->  mode: cluster, 2 instances
 //      and that BOTH workers log "smartplan link configured: true".
+//
+// Starting a CLUSTER of a build that never emits ready means PM2 waits
+// listen_timeout for a signal that is never coming, on every worker. Do step 1
+// first. To revert, set this back to false and repeat step 2 — that returns the
+// app to a single process while KEEPING the drain and the capped pool.
+//
 // DB_POOL_MAX below is already sized for 2 instances, so the connection
 // footprint does not change when you flip it.
 const path = require("path");
 const { pathToFileURL } = require("url");
 
 const APP_NAME = "smartplan-advisor";
-const CLUSTERED = false;
+const CLUSTERED = true;
 const INSTANCES = CLUSTERED ? 2 : 1;
 
 const API_DIR = path.join(__dirname, "apps", "api");
