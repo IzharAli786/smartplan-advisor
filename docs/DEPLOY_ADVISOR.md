@@ -103,8 +103,9 @@ and fill in:
 ### B4. First deploy (populates the folder)
 
 Run the **Deploy Advisor (Windows)** workflow — GitHub → Actions → select it →
-**Run workflow** (or just push to `main`). It builds, ships, `pnpm install`, runs
-`pnpm db:migrate`, and `pm2 start`s the API.
+**Run workflow**. (Not by pushing to `main`: that workflow is `workflow_dispatch`
+only, and a push deploys *dev*.) It builds, ships, `pnpm install`, backs up the DB,
+runs `pnpm db:migrate`, and starts the API via `deploy\pm2-roll.ps1`.
 
 Verify the API is up on localhost (before wiring IIS/DNS):
 
@@ -113,6 +114,14 @@ pm2 list                                  # smartplan-advisor should be "online"
 curl http://localhost:5052/api/health     # -> {"ok":true,...}
 pm2 logs smartplan-advisor --lines 50     # check for startup errors
 ```
+
+> **Where the logs actually are, in cluster mode.** `ecosystem.config.cjs` does
+> **not** set `merge_logs`, so PM2 writes one file per worker —
+> `~/.pm2/logs/smartplan-advisor-out-<pm_id>.log`, not `...-out.log`. The
+> unsuffixed file is a leftover from fork mode and **nothing writes to it any
+> more**; reading it and finding nothing is not evidence that the app is quiet.
+> `pm2 logs` tails all of them, so the command above is still correct — this only
+> bites when you open a file directly.
 
 ### B5. Seed the first Super Admin (once)
 
@@ -184,10 +193,50 @@ pm2 save
 
 ## Ongoing deploys
 
-Push to `main` (or run the workflow manually). Each run rebuilds the web bundle,
-ships the source, `pnpm install`s, applies any **new** SQL migrations
-(`db/migrations/*.sql`, forward-only and idempotent), and reloads PM2. No manual
-step needed unless you change IIS/DNS/TLS.
+**Production is manual-only.** *Deploy Advisor (Windows)* has no `push:` trigger —
+pushing to `main` deploys **dev** (`advisedev.smartplan.software`) and nothing
+else. Production goes out when someone decides it is the right time, from the
+Actions tab. Each run rebuilds the web bundle, ships the source, `pnpm install`s,
+applies any **new** SQL migrations (`db/migrations/*.sql`, forward-only and
+idempotent), and rolls PM2 via `deploy\pm2-roll.ps1`. No manual step needed unless
+you change IIS/DNS/TLS.
+
+### Cluster mode (prod, since 2026-07-27)
+
+`smartplan-advisor` runs **2 cluster workers**, paired with SmartPlan's
+`portal.smartplan.software` which was clustered the same day. `pm2-roll.ps1`
+restarts them **one at a time by numeric `pm_id`**, so a sibling serves throughout
+and a deploy costs no downtime.
+
+It restarts rather than reloads on purpose: `pm2 reload` renames the retiring
+worker's `pm_id` to the string `'_old_<id>'`, PM2 gates its graceful IPC path on
+`pm_id` being a *number*, so `shutdown_with_message` is silently ignored and it
+falls back to `process.kill(pid, SIGINT)` — an unconditional `TerminateProcess` on
+Windows. Both paths look green in the log; only the rolling restart actually drains.
+
+Two things that are load-bearing and easy to undo by accident:
+
+- **`exec_mode`, `instances` and `env:` only apply on `pm2 start`.** A deploy issues
+  `pm2 restart`, which reuses PM2's in-memory config — so editing
+  `ecosystem.config.cjs` and deploying changes *nothing* about the process shape.
+  Applying it needs `pm2 delete` + `pm2 start ecosystem.config.cjs` + `pm2 save`.
+- **`pm2 save` after any such change.** PM2 dumps a cluster as one entry *per
+  worker*, so `instances` survives a reboot only as the entry count in `dump.pm2`.
+
+Verify a healthy cluster — **both** lines must be present, one per worker:
+
+```powershell
+pm2 describe smartplan-advisor            # mode: cluster, 2 instances
+pm2 logs smartplan-advisor --lines 40 --nostream
+#   [advise:0] smartplan link configured: true
+#   [advise:1] smartplan link configured: true
+```
+
+Both `configured: true` lines matter more than they look. Each worker snapshots
+`SMARTPLAN_INGEST_SECRET` and `SMARTPLAN_APP_URL` into module scope at **its own**
+start, so a half-configured pair drops roughly half the commission pushes to
+SmartPlan through silent `return`s — with no error, and with `/api/health` still
+answering 200 on both workers.
 
 ## Troubleshooting
 
@@ -195,9 +244,27 @@ step needed unless you change IIS/DNS/TLS.
 - **App loads but every API call fails** — port mismatch. `API_PORT` in `.env` must
   equal the `localhost:5052` target in `apps/web/public/web.config`.
 - **`pm2` won't start the `.ts` entry** — some pm2 versions mis-detect the interpreter.
-  Fallback (note: `pm2 start` takes a binary + args after `--`, not a quoted command
-  string):
-  `pm2 delete smartplan-advisor; pm2 start node --name smartplan-advisor --cwd C:\smartplan-advisor\apps\api -- --import tsx src/index.ts`
+
+  > **Do not reach for the bare `pm2 start node ...` one-liner that used to live
+  > here.** Since the 2026-07-27 cutover, prod runs as a 2-worker cluster and gets
+  > `wait_ready`, `kill_timeout`, `shutdown_with_message`, `DB_POOL_MAX` and
+  > `PM2_APP_NAME` **exclusively from `ecosystem.config.cjs`**. Starting the app by
+  > hand silently drops all of them: no graceful drain, an uncapped 10-connection
+  > pool, and unlabelled rows in `pg_stat_activity`. The next `pm2 save` then makes
+  > that the definition a reboot restores. It looks fine and `pm2 list` says online.
+
+  Start it from the ecosystem file instead — that is the only supported form:
+
+  ```powershell
+  Set-Location 'C:\smartplan-advisor'
+  pm2 delete smartplan-advisor
+  pm2 start ecosystem.config.cjs --only smartplan-advisor
+  pm2 save
+  ```
+
+  If cluster mode itself is the problem, set `const CLUSTERED = false;` in that file
+  and repeat the four commands. That returns the app to a single process while
+  **keeping** the drain and the capped pool — it is not "revert the deploy".
 - **`permission denied to create extension`** during `db:migrate` — the DB user can't
   `CREATE EXTENSION`. Have a superuser run, in the app DB, **both**
   `CREATE EXTENSION IF NOT EXISTS pg_trgm;` and `CREATE EXTENSION IF NOT EXISTS pgcrypto;`

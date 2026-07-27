@@ -24,7 +24,7 @@
 // This was false while portal.smartplan.software was still a single fork-mode
 // process: clustering the two halves of a pair independently buys nothing and
 // doubles what can be wrong in the one window that matters. It is now true
-// because portal is being cut over with it.
+// because portal was cut over with it — both on 2026-07-27, portal first.
 //
 // Flipping this constant is INERT ON ITS OWN. Deploys run deploy\pm2-roll.ps1,
 // which for an already-running app issues `pm2 restart`, and restart reuses
@@ -43,6 +43,12 @@
 //      exec_mode cannot change in place. ~10s of downtime, once, ever.
 //   3. Verify:  pm2 describe smartplan-advisor   ->  mode: cluster, 2 instances
 //      and that BOTH workers log "smartplan link configured: true".
+//
+// ALL THREE STEPS WERE DONE ON PROD 2026-07-27 (8s of downtime; pm_ids 13 and
+// 14; both workers logged `[advise:N] smartplan link configured: true` and
+// `[lifecycle:N] ready signal sent to PM2`; stderr empty on both). Kept as the
+// recipe, because step 2 must be re-run by hand after ANY edit to exec_mode,
+// instances or the env: block below — a deploy alone will not apply them.
 //
 // Starting a CLUSTER of a build that never emits ready means PM2 waits
 // listen_timeout for a signal that is never coming, on every worker. Do step 1
@@ -121,6 +127,17 @@ module.exports = {
       max_restarts: 10,
       // Prefix pm2 logs with timestamps.
       time: true,
+
+      // merge_logs is deliberately NOT set, unlike SmartPlan's portal config
+      // (whose single out.log had already reached 406 MB, so splitting it per
+      // worker would have made a bad situation worse). Here the files are small
+      // and one per worker is easier to read.
+      //
+      // The consequence, which has already cost one debugging session: in
+      // cluster mode PM2 writes ~/.pm2/logs/smartplan-advisor-out-<pm_id>.log,
+      // NOT ...-out.log. The unsuffixed file is a fork-mode leftover that
+      // nothing writes to any more, so opening it and finding nothing means the
+      // file is dead, not that the app is quiet. `pm2 logs` tails all of them.
     },
   ],
 };
