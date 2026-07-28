@@ -311,43 +311,51 @@ export async function registerLeadRoutes(app: FastifyInstance) {
     const contactCell = lead.corporatePhone || lead.companyPhone || null;
     const state = usStateCode(lead.companyState) ?? "";
 
-    const [opp] = await db
-      .insert(opportunities)
-      .values({
-        orgId: user.orgId,
-        advisorId: lead.assignedAdvisorId,
-        contractorCompanyName: lead.companyName,
-        companyNameNormalized: lead.companyNameNormalized,
-        companyKey: normalizeCompanyKey(lead.companyName),
-        contactName,
-        contactEmail: lead.email ?? null,
-        contactEmailNormalized: lead.emailNormalized,
-        contactCell,
-        contactCellE164: lead.phoneE164,
-        numTechnicians: input.num_technicians ?? null,
-        product: input.product ?? null,
-        opportunityValue: input.opportunity_value != null ? String(input.opportunity_value) : null,
-        status: initialStage,
-        statusChangedAt: now,
-        state,
-        address: lead.companyAddress ?? null,
-        website: lead.website ?? null,
-        notes: lead.keywords ? `From Apollo lead. ${lead.keywords}` : "From Apollo lead.",
-        nextStep,
-        nextStepDue,
-        source: "lead",
-        lastActivityAt: now,
-      })
-      .returning({ id: opportunities.id });
+    // The lead becomes a pipeline opportunity and STOPS being a lead: its row is
+    // removed in the same transaction, so the Leads page never lists it again.
+    const opportunityId = await db.transaction(async (tx) => {
+      const [opp] = await tx
+        .insert(opportunities)
+        .values({
+          orgId: user.orgId,
+          advisorId: lead.assignedAdvisorId,
+          contractorCompanyName: lead.companyName,
+          companyNameNormalized: lead.companyNameNormalized,
+          companyKey: normalizeCompanyKey(lead.companyName),
+          contactName,
+          contactEmail: lead.email ?? null,
+          contactEmailNormalized: lead.emailNormalized,
+          contactCell,
+          contactCellE164: lead.phoneE164,
+          numTechnicians: input.num_technicians ?? null,
+          product: input.product ?? null,
+          opportunityValue: input.opportunity_value != null ? String(input.opportunity_value) : null,
+          status: initialStage,
+          statusChangedAt: now,
+          state,
+          address: lead.companyAddress ?? null,
+          website: lead.website ?? null,
+          notes: lead.keywords ? `From Apollo lead. ${lead.keywords}` : "From Apollo lead.",
+          nextStep,
+          nextStepDue,
+          source: "lead",
+          lastActivityAt: now,
+        })
+        .returning({ id: opportunities.id });
 
-    await db.update(leads).set({ status: "converted", convertedOpportunityId: opp!.id, updatedAt: now }).where(eq(leads.id, id));
-    await logActivity({
-      opportunityId: opp!.id,
-      advisorId: lead.assignedAdvisorId,
-      type: "system",
-      subject: "Converted from Apollo lead",
+      await tx.delete(leads).where(eq(leads.id, id));
+      await logActivity(
+        {
+          opportunityId: opp!.id,
+          advisorId: lead.assignedAdvisorId,
+          type: "system",
+          subject: "Converted from Apollo lead",
+        },
+        tx,
+      );
+      return opp!.id;
     });
 
-    return { opportunityId: opp!.id };
+    return { opportunityId };
   });
 }

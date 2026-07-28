@@ -11,6 +11,9 @@ import { LEAD_STATUSES } from "@smart-crm/shared";
 import type { CurrentUser, Lead } from "../api/types.ts";
 
 const STATUS_KIND: Record<Lead["status"], string> = { new: "lead-new", claimed: "lead-working", converted: "lead-converted", dismissed: "lead-dismissed" };
+// Converting DELETES the lead (it lives on as a pipeline opportunity), so
+// "converted" is never a visible lead state.
+const WORKFLOW_STATUSES = LEAD_STATUSES.filter((s) => s.value !== "converted");
 
 export default function LeadsPage() {
   const { isManager } = useAuth();
@@ -212,7 +215,7 @@ export default function LeadsPage() {
             <label style={{ fontSize: ".72rem" }}>Status</label>
             <select value={statusFilter} onChange={(e) => setFilter("status", e.target.value)}>
               <option value="">All statuses</option>
-              {LEAD_STATUSES.map((s) => (
+              {WORKFLOW_STATUSES.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
@@ -280,23 +283,18 @@ export default function LeadsPage() {
                           <select
                             className={`lead-status-select ${STATUS_KIND[l.status]}`}
                             value={l.status}
-                            disabled={l.status === "converted"}
                             onChange={(e) => changeStatus(l, e.target.value)}
                           >
-                            {LEAD_STATUSES.map((s) => (
+                            {WORKFLOW_STATUSES.map((s) => (
                               <option key={s.value} value={s.value}>{s.label}</option>
                             ))}
                           </select>
                         </td>
                         <td>
                           <div className="row" style={{ gap: 4, justifyContent: "flex-start" }}>
-                            {l.convertedOpportunityId ? (
-                              <Link className="btn small secondary" to={`/opportunity/${l.convertedOpportunityId}`}>Opportunity</Link>
-                            ) : (
-                              <button className="btn small" disabled={busyId === l.id} onClick={() => openConvert(l)}>
-                                <Icon name="arrow-up-right" size={14} /> Convert
-                              </button>
-                            )}
+                            <button className="btn small" disabled={busyId === l.id} onClick={() => openConvert(l)}>
+                              <Icon name="arrow-up-right" size={14} /> Convert
+                            </button>
                             <button className="btn small secondary icon-only" aria-label="Edit" disabled={busyId === l.id} onClick={() => openEdit(l)}>
                               <Icon name="edit" size={14} />
                             </button>
@@ -308,26 +306,7 @@ export default function LeadsPage() {
                           </div>
                         </td>
                       </tr>
-                      {open && (
-                        <tr>
-                          <td colSpan={isManager ? 8 : 7} style={{ background: "var(--color-surface-2)" }}>
-                            <div className="lead-detail-grid">
-                              <Detail label="Email" value={l.email} />
-                              <Detail label="Department" value={l.department} />
-                              <Detail label="Corporate phone" value={l.corporatePhone} />
-                              <Detail label="Company phone" value={l.companyPhone} />
-                              <Detail label="Website" value={l.website} link />
-                              <Detail label="LinkedIn" value={l.linkedinUrl} link />
-                              <Detail label="Company address" value={l.companyAddress} />
-                              <Detail label="Annual revenue" value={l.annualRevenue} />
-                              <Detail label="Technologies" value={l.technologies} wide />
-                              <Detail label="Keywords" value={l.keywords} wide />
-                              {l.notes ? <Detail label="Notes" value={l.notes} wide /> : null}
-                              <Detail label="Imported" value={dateShort(l.createdAt)} />
-                            </div>
-                          </td>
-                        </tr>
-                      )}
+                      {open && <LeadDetailRow lead={l} colSpan={isManager ? 8 : 7} />}
                     </Fragment>
                   );
                 })}
@@ -462,19 +441,40 @@ function EditField({
   );
 }
 
-function Detail({ label, value, link, wide }: { label: string; value: string | null | undefined; link?: boolean; wide?: boolean }) {
+/** Expanded details: only the fields that actually have a value, in a tidy grid. */
+function LeadDetailRow({ lead: l, colSpan }: { lead: Lead; colSpan: number }) {
+  const fields: { label: string; value: string | null | undefined; link?: boolean; wide?: boolean }[] = [
+    { label: "Email", value: l.email },
+    { label: "Department", value: l.department },
+    { label: "Corporate phone", value: l.corporatePhone },
+    { label: "Company phone", value: l.companyPhone },
+    { label: "Website", value: l.website, link: true },
+    { label: "LinkedIn", value: l.linkedinUrl, link: true },
+    { label: "Company address", value: l.companyAddress },
+    { label: "Annual revenue", value: l.annualRevenue },
+    { label: "Imported", value: dateShort(l.createdAt) },
+    { label: "Technologies", value: l.technologies, wide: true },
+    { label: "Keywords", value: l.keywords, wide: true },
+    { label: "Notes", value: l.notes, wide: true },
+  ].filter((f) => f.value);
+
   return (
-    <div style={wide ? { gridColumn: "1 / -1" } : undefined}>
-      <div className="muted" style={{ fontSize: ".72rem", textTransform: "uppercase", letterSpacing: ".02em" }}>{label}</div>
-      {value ? (
-        link ? (
-          <a href={value.startsWith("http") ? value : `https://${value}`} target="_blank" rel="noreferrer" style={{ wordBreak: "break-all" }}>{value}</a>
-        ) : (
-          <div style={{ fontSize: ".9rem" }}>{value}</div>
-        )
-      ) : (
-        <div className="muted">—</div>
-      )}
-    </div>
+    <tr>
+      <td colSpan={colSpan} style={{ background: "var(--color-surface-2)", padding: 0 }}>
+        <div className="lead-detail-grid">
+          {fields.map((f) => (
+            <div key={f.label} className="lead-detail-item" style={f.wide ? { gridColumn: "1 / -1" } : undefined}>
+              <div className="lead-detail-label">{f.label}</div>
+              {f.link && f.value ? (
+                <a href={f.value.startsWith("http") ? f.value : `https://${f.value}`} target="_blank" rel="noreferrer" style={{ wordBreak: "break-all" }}>{f.value}</a>
+              ) : (
+                <div className="lead-detail-value">{f.value}</div>
+              )}
+            </div>
+          ))}
+          {fields.length === 0 && <div className="muted">No additional details on this lead.</div>}
+        </div>
+      </td>
+    </tr>
   );
 }

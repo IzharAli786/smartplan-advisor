@@ -209,7 +209,8 @@ const editStr = (max: number) =>
     .optional();
 
 export const leadUpdateSchema = z.object({
-  status: z.enum(LEAD_STATUS_VALUES).optional(),
+  // "converted" is not settable: converting deletes the lead (POST /:id/convert).
+  status: z.enum(["new", "claimed", "dismissed"]).optional(),
   assigned_advisor_id: z.string().uuid().optional(),
   notes: editStr(4000),
   // ── Editable detail fields ──

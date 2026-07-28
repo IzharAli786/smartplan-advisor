@@ -302,7 +302,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 :root[data-theme="dark"] .delta.down { background: #3a1c1a; color: #f0857c; }
 
 /* Apollo leads */
-.lead-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem 1.25rem; padding: .85rem .25rem; }
+.lead-detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem 1.5rem; padding: 1rem 1.25rem; border-top: 1px solid var(--border-strong); }
+.lead-detail-label { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-muted); margin-bottom: 2px; }
+.lead-detail-value { font-size: .875rem; line-height: 1.45; overflow-wrap: anywhere; }
 .lead-status-select { font-size: .78rem; font-weight: 600; padding: 3px 6px; border-radius: var(--radius-pill); border: 1px solid var(--color-border); background: var(--color-surface); }
 .lead-status-select.lead-new { background: rgba(0,217,217,.14); color: var(--color-primary); }
 .lead-status-select.lead-working { background: #fff5e0; color: #9a6a00; }
