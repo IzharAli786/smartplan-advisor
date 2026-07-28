@@ -48,6 +48,10 @@ export default function LeadsPage() {
   const [cValue, setCValue] = useState("");
   const [cTechs, setCTechs] = useState("");
 
+  // Edit modal
+  const [editLead, setEditLead] = useState<Lead | null>(null);
+  const [form, setForm] = useState<Record<string, string>>({});
+
   function setFilter(key: string, value: string) {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
@@ -88,6 +92,73 @@ export default function LeadsPage() {
     setCValue("");
     setCTechs("");
     setActErr(null);
+  }
+
+  function openEdit(lead: Lead) {
+    setEditLead(lead);
+    setForm({
+      company_name: lead.companyName,
+      first_name: lead.firstName ?? "",
+      last_name: lead.lastName ?? "",
+      title: lead.title ?? "",
+      email: lead.email ?? "",
+      department: lead.department ?? "",
+      linkedin_url: lead.linkedinUrl ?? "",
+      website: lead.website ?? "",
+      company_address: lead.companyAddress ?? "",
+      company_city: lead.companyCity ?? "",
+      company_state: lead.companyState ?? "",
+      corporate_phone: lead.corporatePhone ?? "",
+      company_phone: lead.companyPhone ?? "",
+      num_employees: lead.numEmployees == null ? "" : String(lead.numEmployees),
+      annual_revenue: lead.annualRevenue ?? "",
+      subsidiary_of: lead.subsidiaryOf ?? "",
+      technologies: lead.technologies ?? "",
+      keywords: lead.keywords ?? "",
+      notes: lead.notes ?? "",
+    });
+    setActErr(null);
+  }
+
+  // Mirror of the backend rules in leadUpdateSchema — the API is the authority, this is UX.
+  const editCompanyMissing = editLead != null && !form.company_name?.trim();
+  const editEmailInvalid = editLead != null && !!form.email?.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim());
+  const editEmployeesInvalid =
+    editLead != null && !!form.num_employees?.trim() && !/^\d+$/.test(form.num_employees.trim());
+
+  async function doSaveEdit() {
+    if (!editLead || editCompanyMissing || editEmailInvalid || editEmployeesInvalid) return;
+    setBusyId(editLead.id);
+    setActErr(null);
+    try {
+      await api.patch(`/api/leads/${editLead.id}`, {
+        company_name: form.company_name!.trim(),
+        first_name: form.first_name!.trim(),
+        last_name: form.last_name!.trim(),
+        title: form.title!.trim(),
+        email: form.email!.trim(),
+        department: form.department!.trim(),
+        linkedin_url: form.linkedin_url!.trim(),
+        website: form.website!.trim(),
+        company_address: form.company_address!.trim(),
+        company_city: form.company_city!.trim(),
+        company_state: form.company_state!.trim(),
+        corporate_phone: form.corporate_phone!.trim(),
+        company_phone: form.company_phone!.trim(),
+        num_employees: form.num_employees!.trim(),
+        annual_revenue: form.annual_revenue!.trim(),
+        subsidiary_of: form.subsidiary_of!.trim(),
+        technologies: form.technologies!.trim(),
+        keywords: form.keywords!.trim(),
+        notes: form.notes!.trim(),
+      });
+      setEditLead(null);
+      reload();
+    } catch (e) {
+      setActErr(e instanceof ApiError ? e.message : "Couldn't save the lead");
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function doConvert() {
@@ -226,6 +297,9 @@ export default function LeadsPage() {
                                 <Icon name="arrow-up-right" size={14} /> Convert
                               </button>
                             )}
+                            <button className="btn small secondary icon-only" aria-label="Edit" disabled={busyId === l.id} onClick={() => openEdit(l)}>
+                              <Icon name="edit" size={14} />
+                            </button>
                             {isManager && (
                               <button className="btn small secondary icon-only" aria-label="Delete" disabled={busyId === l.id} onClick={() => remove(l)}>
                                 <Icon name="x" size={14} />
@@ -300,6 +374,90 @@ export default function LeadsPage() {
           </div>
         </div>
       )}
+
+      {editLead && (
+        <div className="modal-overlay" onClick={() => setEditLead(null)}>
+          <div className="modal" style={{ maxWidth: 680, maxHeight: "85vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Edit lead</h3>
+            <ErrorBanner message={actErr} />
+            <div className="field">
+              <label>Company name *</label>
+              <input value={form.company_name ?? ""} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
+              {editCompanyMissing && <div className="field-error">Company name is required</div>}
+            </div>
+            <div className="row" style={{ gap: ".6rem" }}>
+              <EditField label="First name" name="first_name" form={form} setForm={setForm} />
+              <EditField label="Last name" name="last_name" form={form} setForm={setForm} />
+            </div>
+            <div className="row" style={{ gap: ".6rem" }}>
+              <EditField label="Title" name="title" form={form} setForm={setForm} />
+              <EditField label="Department" name="department" form={form} setForm={setForm} />
+            </div>
+            <div className="field">
+              <label>Email</label>
+              <input type="email" value={form.email ?? ""} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              {editEmailInvalid && <div className="field-error">Enter a valid email address</div>}
+            </div>
+            <div className="row" style={{ gap: ".6rem" }}>
+              <EditField label="Corporate phone" name="corporate_phone" form={form} setForm={setForm} />
+              <EditField label="Company phone" name="company_phone" form={form} setForm={setForm} />
+            </div>
+            <div className="row" style={{ gap: ".6rem" }}>
+              <EditField label="Website" name="website" form={form} setForm={setForm} />
+              <EditField label="LinkedIn" name="linkedin_url" form={form} setForm={setForm} />
+            </div>
+            <EditField label="Company address" name="company_address" form={form} setForm={setForm} />
+            <div className="row" style={{ gap: ".6rem" }}>
+              <EditField label="City" name="company_city" form={form} setForm={setForm} />
+              <EditField label="State" name="company_state" form={form} setForm={setForm} />
+            </div>
+            <div className="row" style={{ gap: ".6rem" }}>
+              <div className="field" style={{ flex: 1 }}>
+                <label># Employees</label>
+                <input inputMode="numeric" value={form.num_employees ?? ""} onChange={(e) => setForm({ ...form, num_employees: e.target.value })} />
+                {editEmployeesInvalid && <div className="field-error">Enter a whole number</div>}
+              </div>
+              <EditField label="Annual revenue" name="annual_revenue" form={form} setForm={setForm} />
+            </div>
+            <EditField label="Subsidiary of" name="subsidiary_of" form={form} setForm={setForm} />
+            <EditField label="Technologies" name="technologies" form={form} setForm={setForm} />
+            <EditField label="Keywords" name="keywords" form={form} setForm={setForm} />
+            <div className="field">
+              <label>Notes</label>
+              <textarea rows={3} value={form.notes ?? ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            </div>
+            <div className="row" style={{ gap: ".5rem", justifyContent: "flex-end", marginTop: ".5rem" }}>
+              <button className="btn secondary" onClick={() => setEditLead(null)}>Cancel</button>
+              <button
+                className="btn"
+                disabled={busyId === editLead.id || editCompanyMissing || editEmailInvalid || editEmployeesInvalid}
+                onClick={doSaveEdit}
+              >
+                {busyId === editLead.id ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EditField({
+  label,
+  name,
+  form,
+  setForm,
+}: {
+  label: string;
+  name: string;
+  form: Record<string, string>;
+  setForm: (f: Record<string, string>) => void;
+}) {
+  return (
+    <div className="field" style={{ flex: 1 }}>
+      <label>{label}</label>
+      <input value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} />
     </div>
   );
 }

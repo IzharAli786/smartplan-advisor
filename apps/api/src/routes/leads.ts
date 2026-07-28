@@ -214,7 +214,7 @@ export async function registerLeadRoutes(app: FastifyInstance) {
     return { leads: rows.map((r) => ({ ...r.lead, advisorName: r.advisorName })) };
   });
 
-  // PATCH /api/leads/:id — status / notes; managers may also reassign.
+  // PATCH /api/leads/:id — status / notes / detail edits; managers may also reassign.
   app.patch("/:id", async (req) => {
     const user = requireUser(req);
     const managerial = user.role === "super_admin";
@@ -228,6 +228,37 @@ export async function registerLeadRoutes(app: FastifyInstance) {
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (input.status !== undefined) patch.status = input.status;
     if (input.notes !== undefined) patch.notes = input.notes ?? null;
+    if (input.company_name !== undefined) {
+      patch.companyName = input.company_name;
+      patch.companyNameNormalized = normalizeCompanyName(input.company_name);
+    }
+    if (input.first_name !== undefined) patch.firstName = input.first_name;
+    if (input.last_name !== undefined) patch.lastName = input.last_name;
+    if (input.title !== undefined) patch.title = input.title;
+    if (input.email !== undefined) {
+      patch.email = input.email;
+      patch.emailNormalized = normalizeEmail(input.email);
+    }
+    if (input.department !== undefined) patch.department = input.department;
+    if (input.linkedin_url !== undefined) patch.linkedinUrl = input.linkedin_url;
+    if (input.website !== undefined) patch.website = input.website;
+    if (input.company_address !== undefined) patch.companyAddress = input.company_address;
+    if (input.company_city !== undefined) patch.companyCity = input.company_city;
+    if (input.company_state !== undefined)
+      patch.companyState = input.company_state == null ? null : (usStateCode(input.company_state) ?? input.company_state);
+    if (input.corporate_phone !== undefined) patch.corporatePhone = input.corporate_phone;
+    if (input.company_phone !== undefined) patch.companyPhone = input.company_phone;
+    if (input.corporate_phone !== undefined || input.company_phone !== undefined) {
+      // phone_e164 is derived from the best available number — recompute against the merged state.
+      const corporate = input.corporate_phone !== undefined ? input.corporate_phone : lead.corporatePhone;
+      const company = input.company_phone !== undefined ? input.company_phone : lead.companyPhone;
+      patch.phoneE164 = normalizePhoneE164(corporate || company || null);
+    }
+    if (input.num_employees !== undefined) patch.numEmployees = input.num_employees;
+    if (input.annual_revenue !== undefined) patch.annualRevenue = input.annual_revenue;
+    if (input.subsidiary_of !== undefined) patch.subsidiaryOf = input.subsidiary_of;
+    if (input.keywords !== undefined) patch.keywords = input.keywords;
+    if (input.technologies !== undefined) patch.technologies = input.technologies;
     if (input.assigned_advisor_id !== undefined) {
       if (!managerial) throw forbidden("Only a manager can reassign a lead");
       const [ok] = await db

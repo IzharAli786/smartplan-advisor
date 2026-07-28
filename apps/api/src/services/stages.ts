@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db, statusStages } from "@smart-crm/db";
+import { conflict } from "../lib/errors.js";
 
 export interface StageInfo {
   key: string;
@@ -37,6 +38,11 @@ export async function getConversionStage(orgId: string): Promise<StageInfo | nul
 export async function getInitialStageKey(orgId: string): Promise<string> {
   const rows = await db.select().from(statusStages).where(eq(statusStages.orgId, orgId)).orderBy(statusStages.sortOrder);
   const first = rows.find((r) => r.active) ?? rows[0];
-  if (!first) throw new Error("No status stages configured for this organization");
+  // A plain Error here surfaced as a bare 500 "Internal server error" — say what's wrong.
+  if (!first)
+    throw conflict(
+      "No pipeline stages are configured for your organization — add them in Settings before creating opportunities.",
+      "no_stages",
+    );
   return first.key;
 }

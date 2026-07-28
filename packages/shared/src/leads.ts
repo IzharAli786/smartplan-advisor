@@ -198,10 +198,48 @@ export const leadImportCommitSchema = z.object({
 });
 export type LeadImportCommit = z.infer<typeof leadImportCommitSchema>;
 
+/** Editable lead field: omitted = unchanged, "" or null = cleared. */
+const editStr = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .transform((v) => (v === "" ? null : v))
+    .optional();
+
 export const leadUpdateSchema = z.object({
   status: z.enum(LEAD_STATUS_VALUES).optional(),
   assigned_advisor_id: z.string().uuid().optional(),
-  notes: z.string().trim().max(4000).optional().or(z.literal("").transform(() => undefined)),
+  notes: editStr(4000),
+  // ── Editable detail fields ──
+  company_name: z.string().trim().min(1, "Company name is required").max(240).optional(),
+  first_name: editStr(120),
+  last_name: editStr(120),
+  title: editStr(200),
+  email: z
+    .string()
+    .trim()
+    .max(200)
+    .email("Enter a valid email address")
+    .nullable()
+    .or(z.literal("").transform(() => null))
+    .optional(),
+  department: editStr(160),
+  linkedin_url: editStr(400),
+  website: editStr(400),
+  company_address: editStr(400),
+  company_city: editStr(160),
+  company_state: editStr(120),
+  corporate_phone: editStr(60),
+  company_phone: editStr(60),
+  num_employees: z
+    .union([z.literal("").transform(() => null), z.null(), z.coerce.number().int().min(0).max(10_000_000)])
+    .optional(),
+  annual_revenue: editStr(120),
+  subsidiary_of: editStr(240),
+  keywords: editStr(4000),
+  technologies: editStr(4000),
 });
 export type LeadUpdateInput = z.infer<typeof leadUpdateSchema>;
 
