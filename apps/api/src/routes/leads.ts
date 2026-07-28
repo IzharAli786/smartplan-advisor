@@ -88,16 +88,16 @@ export async function registerLeadRoutes(app: FastifyInstance) {
       .limit(1);
     if (!advisor) throw badRequest("Choose an active Smart Advisor for this import", "bad_advisor");
 
-    // Pre-load existing lead fingerprints. Apollo rows are PEOPLE, so a "duplicate" is the
-    // same person (by email, or company+name when email is missing) — NOT merely the same
-    // company, since several distinct contacts can share one contractor.
+    // A "duplicate" is simply the SAME COMPANY — one lead per contractor, regardless of
+    // which contact person the row carries (per admin workflow: the advisor works the
+    // company, not each Apollo contact). Keyed on normalizeCompanyKey (case/punctuation
+    // insensitive, keeps every token) so "Acme, Inc." = "Acme Inc" but
+    // "Acme HVAC" ≠ "Acme Plumbing" — the same lesson as migration 0024.
     const existing = await db
-      .select({ company: leads.companyNameNormalized, email: leads.emailNormalized, first: leads.firstName, last: leads.lastName })
+      .select({ company: leads.companyName })
       .from(leads)
       .where(eq(leads.orgId, user.orgId));
-    const personKey = (companyNorm: string, emailNorm: string | null, first?: string | null, last?: string | null) =>
-      emailNorm ? `e:${emailNorm}` : `c:${companyNorm}|${(first ?? "").toLowerCase().trim()}|${(last ?? "").toLowerCase().trim()}`;
-    const seenPeople = new Set(existing.map((e) => personKey(e.company, e.email, e.first, e.last)));
+    const seenCompanies = new Set(existing.map((e) => normalizeCompanyKey(e.company)));
 
     const now = new Date();
     const results: LeadPreview[] = [];
@@ -108,31 +108,35 @@ export async function registerLeadRoutes(app: FastifyInstance) {
       const companyNorm = normalizeCompanyName(row.company_name);
       const emailNorm = normalizeEmail(row.email ?? null);
       const phoneE164 = normalizePhoneE164(bestPhone(row) ?? null);
-      const key = personKey(companyNorm, emailNorm, row.first_name, row.last_name);
+      const companyKey = normalizeCompanyKey(row.company_name);
 
-      // Same person already imported? (skip). Otherwise note if the company is already worked.
-      const dupPerson = seenPeople.has(key);
+      // Company already a lead? (skip). Otherwise note if it's already worked in the pipeline.
+      const dupCompany = seenCompanies.has(companyKey);
       let inPipelineOwner: string | null = null;
-      if (!dupPerson) {
+      if (!dupCompany) {
         const { ownMatch, conflict } = await findMatches({
           orgId: user.orgId,
           requestingAdvisorId: input.advisor_id,
-          companyKey: normalizeCompanyKey(row.company_name),
+          companyKey,
           contactEmailNormalized: emailNorm,
           contactCellE164: phoneE164,
         });
         inPipelineOwner = conflict?.ownerName ?? ownMatch?.ownerName ?? null;
       }
 
-      const status: LeadPreview["status"] = dupPerson ? "duplicate" : inPipelineOwner ? "in_pipeline" : "created";
+      const status: LeadPreview["status"] = dupCompany ? "duplicate" : inPipelineOwner ? "in_pipeline" : "created";
+
+      // Track within this batch too, so a file with several contacts at one company
+      // previews the way the live run will import: first row wins, the rest duplicate.
+      seenCompanies.add(companyKey);
 
       if (input.dry_run) {
         results.push({ index: i, status, detail: inPipelineOwner });
         continue;
       }
-      // Live run: only skip exact-person duplicates. An "in_pipeline" company is still a
-      // distinct contact the admin chose to assign, so we import it (flagged in the preview).
-      if (dupPerson) {
+      // Live run: only skip same-company duplicates. An "in_pipeline" company is a deliberate
+      // admin assignment over an existing opportunity, so we import it (flagged in the preview).
+      if (dupCompany) {
         results.push({ index: i, status, detail: inPipelineOwner });
         continue;
       }
@@ -167,8 +171,6 @@ export async function registerLeadRoutes(app: FastifyInstance) {
         createdAt: now,
         updatedAt: now,
       });
-      // Track within this batch so a repeated person in the same file also dedupes.
-      seenPeople.add(key);
       created++;
       results.push({ index: i, status, detail: inPipelineOwner });
     }
