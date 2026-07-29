@@ -35,7 +35,7 @@ export function composeTakeoverNotes(
   requesterName: string,
   when: Date,
 ): string {
-  const date = when.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const date = when.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   const lines: string[] = [`--- Takeover intake (${requesterName}, ${date}) ---`];
 
   const contact = [draft.contact_name, draft.contact_email, draft.contact_cell].filter(Boolean).join(" · ");
