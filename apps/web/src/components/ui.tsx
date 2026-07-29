@@ -195,7 +195,7 @@ export function EmptyState({
   );
 }
 
-export function StatusBadge({ label, kind }: { label: string; kind?: "overdue" | "success" | "ai" }) {
+export function StatusBadge({ label, kind }: { label: string; kind?: string }) {
   return <span className={`badge ${kind ?? ""}`}>{label}</span>;
 }
 

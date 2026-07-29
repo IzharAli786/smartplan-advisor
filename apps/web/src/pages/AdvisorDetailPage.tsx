@@ -9,6 +9,7 @@ import PerformancePanel from "../components/PerformancePanel.tsx";
 import SmartPlanTransactions from "../components/SmartPlanTransactions.tsx";
 import { exportStatementPdf } from "../lib/export.ts";
 import { dateShort, money, pct } from "../lib/format.ts";
+import { stageTone } from "../lib/stage.ts";
 import type { CommissionStatement, CurrentUser, Opportunity, StatusStage } from "../api/types.ts";
 
 export default function AdvisorDetailPage() {
@@ -132,8 +133,8 @@ export default function AdvisorDetailPage() {
         <div>
           <StatGrid>
             <StatCard label="Open" value={open} sub="In progress" icon={<Icon name="pipeline" />} />
-            <StatCard label="Pipeline Value" value={money(pipelineValue)} sub="Open, not yet won" icon={<Icon name="briefcase" />} />
-            <StatCard label="Won" value={won} sub="Converted" icon={<Icon name="check-circle" />} />
+            <StatCard label="Pipeline Value" value={money(pipelineValue)} sub="Open, not yet subscribed" icon={<Icon name="briefcase" />} />
+            <StatCard label="Subscribed" value={won} sub="Converted" icon={<Icon name="check-circle" />} />
             <StatCard label="Conversion" value={pct(conversionRate)} sub={`${total} total`} icon={<Icon name="reports" />} />
           </StatGrid>
 
@@ -182,10 +183,7 @@ export default function AdvisorDetailPage() {
                         </div>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <StatusBadge
-                          label={labels[o.status] ?? prettyKey(o.status)}
-                          kind={stage?.isConversion ? "success" : stage?.isTerminal ? "overdue" : undefined}
-                        />
+                        <StatusBadge label={labels[o.status] ?? prettyKey(o.status)} kind={stageTone(stage)} />
                         <div className="muted" style={{ fontSize: ".82rem", marginTop: 4 }}>
                           {o.opportunityValue != null ? money(o.opportunityValue) : "—"}
                         </div>

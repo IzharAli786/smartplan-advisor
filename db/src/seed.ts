@@ -27,7 +27,7 @@ const DEFAULT_STAGES = [
   { key: "contacted", label: "Contacted", sortOrder: 2, isConversion: false, isTerminal: false },
   { key: "demo_scheduled", label: "Demo Scheduled", sortOrder: 3, isConversion: false, isTerminal: false },
   { key: "proposal", label: "Proposal", sortOrder: 4, isConversion: false, isTerminal: false },
-  { key: "won", label: "Won", sortOrder: 5, isConversion: true, isTerminal: true },
+  { key: "won", label: "Subscribed", sortOrder: 5, isConversion: true, isTerminal: true },
   { key: "lost", label: "Lost", sortOrder: 6, isConversion: false, isTerminal: true },
 ];
 

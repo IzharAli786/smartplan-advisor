@@ -43,6 +43,7 @@ export default function LeadsPage() {
 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [actErr, setActErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   // Convert modal
@@ -70,6 +71,22 @@ export default function LeadsPage() {
       reload();
     } catch (e) {
       setActErr(e instanceof ApiError ? e.message : "Couldn't update the lead");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function reassign(lead: Lead, advisorId: string) {
+    setBusyId(lead.id);
+    setActErr(null);
+    try {
+      await api.patch(`/api/leads/${lead.id}`, { assigned_advisor_id: advisorId });
+      const name = advisors.find((a) => a.id === advisorId)?.fullName ?? "advisor";
+      setNotice(`"${lead.companyName}" reassigned to ${name}`);
+      setTimeout(() => setNotice(null), 4000);
+      reload();
+    } catch (e) {
+      setActErr(e instanceof ApiError ? e.message : "Couldn't reassign the lead");
     } finally {
       setBusyId(null);
     }
@@ -197,6 +214,7 @@ export default function LeadsPage() {
         }
       />
       <ErrorBanner message={error || actErr} />
+      {notice && <div className="success-banner">{notice}</div>}
 
       <Card>
         <div className="row" style={{ gap: ".6rem", flexWrap: "wrap", justifyContent: "flex-start" }}>
@@ -306,7 +324,15 @@ export default function LeadsPage() {
                           </div>
                         </td>
                       </tr>
-                      {open && <LeadDetailRow lead={l} colSpan={isManager ? 8 : 7} />}
+                      {open && (
+                        <LeadDetailRow
+                          lead={l}
+                          colSpan={isManager ? 8 : 7}
+                          advisors={isManager ? advisors : undefined}
+                          busy={busyId === l.id}
+                          onReassign={(advisorId) => reassign(l, advisorId)}
+                        />
+                      )}
                     </Fragment>
                   );
                 })}
@@ -441,8 +467,26 @@ function EditField({
   );
 }
 
-/** Expanded details: only the fields that actually have a value, in a tidy grid. */
-function LeadDetailRow({ lead: l, colSpan }: { lead: Lead; colSpan: number }) {
+/** Expanded details: only the fields that actually have a value, in a tidy grid.
+ *  Managers also get a "Reassign to" control (advisors + onReassign are only
+ *  passed for managers — the API enforces the same rule). */
+function LeadDetailRow({
+  lead: l,
+  colSpan,
+  advisors,
+  busy,
+  onReassign,
+}: {
+  lead: Lead;
+  colSpan: number;
+  advisors?: CurrentUser[];
+  busy?: boolean;
+  onReassign?: (advisorId: string) => void;
+}) {
+  // Current owner may be missing from the list (e.g. deactivated) — start unselected then.
+  const [advisorId, setAdvisorId] = useState(() =>
+    advisors?.some((a) => a.id === l.assignedAdvisorId) ? l.assignedAdvisorId : ""
+  );
   const fields: { label: string; value: string | null | undefined; link?: boolean; wide?: boolean }[] = [
     { label: "Email", value: l.email },
     { label: "Department", value: l.department },
@@ -474,6 +518,35 @@ function LeadDetailRow({ lead: l, colSpan }: { lead: Lead; colSpan: number }) {
           ))}
           {fields.length === 0 && <div className="muted">No additional details on this lead.</div>}
         </div>
+        {advisors && onReassign && (
+          <div
+            className="row"
+            style={{ justifyContent: "flex-start", alignItems: "flex-end", gap: ".6rem", padding: "0 1.25rem 1rem", flexWrap: "wrap" }}
+          >
+            {advisors.length === 0 ? (
+              <span className="muted" style={{ fontSize: ".85rem" }}>No active advisors to reassign to.</span>
+            ) : (
+              <>
+                <div className="field" style={{ margin: 0, minWidth: 220 }}>
+                  <label style={{ fontSize: ".72rem" }}>Reassign to</label>
+                  <select value={advisorId} onChange={(e) => setAdvisorId(e.target.value)}>
+                    {advisorId === "" && <option value="">— choose advisor —</option>}
+                    {advisors.map((a) => (
+                      <option key={a.id} value={a.id}>{a.fullName}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  className="btn small"
+                  disabled={busy || !advisorId || advisorId === l.assignedAdvisorId}
+                  onClick={() => onReassign(advisorId)}
+                >
+                  {busy ? "Reassigning…" : "Reassign"}
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </td>
     </tr>
   );

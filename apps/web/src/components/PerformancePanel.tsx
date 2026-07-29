@@ -115,7 +115,7 @@ export default function PerformancePanel({ advisorId }: { advisorId?: string }) 
       {/* Projection + badges */}
       <StatGrid>
         <StatCard label="Adjusted Annual Projection" value={money(d?.adjustedAnnual ?? 0)} sub="After non-sales time" icon={<Icon name="reports" />} />
-        <StatCard label="Won YTD" value={money(d?.wonYtd ?? 0)} sub={`${Math.round(d?.attainmentYear ?? 0)}% of objective`} icon={<Icon name="check-circle" />} />
+        <StatCard label="Subscribed YTD" value={money(d?.wonYtd ?? 0)} sub={`${Math.round(d?.attainmentYear ?? 0)}% of objective`} icon={<Icon name="check-circle" />} />
         <StatCard label="Required $/hour" value={money(d?.requiredPerHour ?? 0)} sub={`${d?.totalHours ?? 0} selling hours/yr`} icon={<Icon name="clock" />} />
         <StatCard label="Non-Sales Hours" value={d?.nonSalesHours ?? 0} sub={`Sales: ${d?.salesHours ?? 0}h`} icon={<Icon name="activity" />} />
       </StatGrid>

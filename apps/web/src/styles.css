@@ -107,6 +107,17 @@ p { margin: 0 0 0.5rem; }
 .badge.overdue { background: var(--alert-bg); color: var(--alert-text); }
 .badge.ai { background: var(--color-primary-soft); color: var(--color-primary-dark); }
 .badge.success { background: var(--success-soft); color: var(--success-text); }
+/* Stage tones — every pipeline status gets its own colour (assigned in lib/stage.ts). */
+.badge.tone-sky { background: #e3f1fb; color: #0d5c95; }
+.badge.tone-amber { background: #fdf3e0; color: #a66412; }
+.badge.tone-violet { background: #efe9fb; color: #6d3fc4; }
+.badge.tone-teal { background: #def4f2; color: #0f766e; }
+.badge.tone-rose { background: #fdeaf1; color: #b0356d; }
+:root[data-theme="dark"] .badge.tone-sky { background: #12314a; color: #6fb9ea; }
+:root[data-theme="dark"] .badge.tone-amber { background: #3a2c14; color: #e0a95a; }
+:root[data-theme="dark"] .badge.tone-violet { background: #2b2145; color: #b79aec; }
+:root[data-theme="dark"] .badge.tone-teal { background: #10312e; color: #5ecec4; }
+:root[data-theme="dark"] .badge.tone-rose { background: #3d1a2b; color: #ee8ab6; }
 
 /* ── Progress bars ────────────────────────────────────────── */
 .progress { height: 6px; border-radius: var(--radius-pill); background: var(--progress-track); overflow: hidden; margin: 0.5rem 0; }

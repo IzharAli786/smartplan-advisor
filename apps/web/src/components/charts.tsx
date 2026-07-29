@@ -70,7 +70,7 @@ export function Donut({ data }: { data: { label: string; value: number }[] }) {
   const R = 60;
   const r = 38;
   const C = 80;
-  if (total <= 0) return <div className="muted" style={{ fontSize: ".85rem" }}>No won revenue yet this year.</div>;
+  if (total <= 0) return <div className="muted" style={{ fontSize: ".85rem" }}>No subscribed revenue yet this year.</div>;
   let acc = 0;
   const segs = data.map((d, i) => {
     const frac = d.value / total;

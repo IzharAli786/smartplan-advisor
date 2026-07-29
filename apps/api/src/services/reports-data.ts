@@ -28,13 +28,14 @@ export interface ReportMeta {
 }
 
 export const REPORT_CATALOG: ReportMeta[] = [
-  { key: "converted", title: "Converted Customers", description: "Every won deal with its effective commission.", dateRange: true },
+  { key: "converted", title: "Converted Customers", description: "Every subscribed deal with its effective commission.", dateRange: true },
   { key: "advisor-performance", title: "Advisor Performance", description: "Leaderboard: pipeline, wins, conversion and commission per advisor.", dateRange: true },
   { key: "commission-by-advisor", title: "Commission Summary", description: "Total commission owed per advisor (pipeline + SmartPlan referrals) for the period.", dateRange: true },
   { key: "referral-by-advisor", title: "Referral Commission by Advisor", description: "SmartPlan referral subscriptions per advisor: customers subscribed, revenue and commission.", dateRange: true },
-  { key: "sales-by-state", title: "Sales by State", description: "Pipeline and won business by territory.", dateRange: true },
+  { key: "sales-by-state", title: "Sales by State", description: "Pipeline and subscribed business by territory.", dateRange: true },
   { key: "sales-by-product", title: "Sales by Product", description: "Which SmartPlan products are selling.", dateRange: true },
   { key: "pipeline-by-stage", title: "Pipeline by Stage", description: "Open opportunities and value at each stage.", dateRange: false },
+  { key: "pipeline-activity", title: "Pipeline Activity by Status", description: "Every opportunity grouped by pipeline status — including Subscribed and Lost.", dateRange: true },
   { key: "forecast", title: "Forecast & Quota", description: "This month's quota attainment plus a probability-weighted pipeline forecast.", dateRange: false },
   { key: "smartplan-transactions", title: "Smart Plan Transactions", description: "Every Smart Plan (Stripe/manual) transaction per advisor — click an advisor to open their history.", dateRange: true },
 ];
@@ -155,7 +156,7 @@ async function converted(orgId: string, from: string, to: string): Promise<Repor
   return {
     key: "converted",
     title: "Converted Customers",
-    subtitle: "Won deals with effective commission",
+    subtitle: "Subscribed deals with effective commission",
     dateRange: true,
     columns: [
       { key: "company", label: "Company", type: "text" },
@@ -232,8 +233,8 @@ async function advisorPerformance(orgId: string, from: string, to: string): Prom
       { key: "states", label: "States", type: "text" },
       { key: "openOpps", label: "Open", type: "number" },
       { key: "openValue", label: "Open Value", type: "currency" },
-      { key: "wonDeals", label: "Won", type: "number" },
-      { key: "wonValue", label: "Won Value", type: "currency" },
+      { key: "wonDeals", label: "Subscribed", type: "number" },
+      { key: "wonValue", label: "Subscribed Value", type: "currency" },
       { key: "commission", label: "Commission", type: "currency" },
       { key: "conversion", label: "Conv. %", type: "percent" },
     ],
@@ -293,7 +294,7 @@ async function commissionByAdvisor(orgId: string, from: string, to: string): Pro
     dateRange: true,
     columns: [
       { key: "advisorName", label: "Advisor", type: "text" },
-      { key: "deals", label: "Deals Won", type: "number" },
+      { key: "deals", label: "Deals Subscribed", type: "number" },
       { key: "dealValue", label: "Deal Value", type: "currency" },
       { key: "pipelineCommission", label: "Pipeline Comm.", type: "currency" },
       { key: "referralRevenue", label: "Referral Rev.", type: "currency" },
@@ -351,14 +352,14 @@ async function salesByKey(orgId: string, from: string, to: string, key: "state" 
   return {
     key: key === "state" ? "sales-by-state" : "sales-by-product",
     title: key === "state" ? "Sales by State" : "Sales by Product",
-    subtitle: key === "state" ? "Pipeline and won business by territory" : "Pipeline and won business by product",
+    subtitle: key === "state" ? "Pipeline and subscribed business by territory" : "Pipeline and subscribed business by product",
     dateRange: true,
     columns: [
       { key: "group", label: key === "state" ? "State" : "Product", type: "text" },
       { key: "openOpps", label: "Open", type: "number" },
       { key: "openValue", label: "Open Value", type: "currency" },
-      { key: "wonDeals", label: "Won", type: "number" },
-      { key: "wonValue", label: "Won Value", type: "currency" },
+      { key: "wonDeals", label: "Subscribed", type: "number" },
+      { key: "wonValue", label: "Subscribed Value", type: "currency" },
     ],
     rows,
     totals: {
@@ -391,6 +392,61 @@ async function pipelineByStage(orgId: string): Promise<ReportData> {
     ],
     rows: data,
     totals: { stage: "Total", count: data.reduce((s, r) => s + r.count, 0), value: round2(data.reduce((s, r) => s + r.value, 0)) },
+    generatedAt: "",
+  };
+}
+
+/** Every opportunity in the period listed under its pipeline status — terminal
+ *  stages (Subscribed, Lost) included. The date range filters on the logged
+ *  (created) date, matching the Pipeline page's date filter semantics. */
+async function pipelineActivity(orgId: string, from: string, to: string): Promise<ReportData> {
+  const rows = await db.execute<{
+    status: string;
+    company: string;
+    product: string | null;
+    advisor: string;
+    value: string | null;
+    created_at: string;
+    updated_at: string;
+  }>(dsql`
+    SELECT s.label AS status, o.contractor_company_name AS company, o.product,
+           u.full_name AS advisor, o.opportunity_value AS value, o.created_at, o.updated_at
+    FROM opportunities o
+    JOIN status_stages s ON s.org_id = o.org_id AND s.key = o.status
+    JOIN users u ON u.id = o.advisor_id
+    WHERE o.org_id = ${orgId}
+      AND o.created_at >= ${from}::timestamptz AND o.created_at <= ${to}::timestamptz
+    ORDER BY s.sort_order, o.updated_at DESC
+  `);
+  const data = rows.map((r) => ({
+    status: r.status,
+    company: r.company,
+    product: r.product,
+    advisor: r.advisor,
+    value: r.value == null ? null : Number(r.value),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+  return {
+    key: "pipeline-activity",
+    title: "Pipeline Activity by Status",
+    subtitle: "Every opportunity logged in the period, grouped by pipeline status — including Subscribed and Lost",
+    dateRange: true,
+    columns: [
+      { key: "status", label: "Status", type: "text" },
+      { key: "company", label: "Company", type: "text" },
+      { key: "product", label: "Product", type: "text" },
+      { key: "advisor", label: "Advisor", type: "text" },
+      { key: "value", label: "Value", type: "currency" },
+      { key: "createdAt", label: "Created", type: "date" },
+      { key: "updatedAt", label: "Last Updated", type: "date" },
+    ],
+    rows: data,
+    totals: {
+      status: "Total",
+      company: `${data.length} opportunit${data.length === 1 ? "y" : "ies"}`,
+      value: round2(data.reduce((s, r) => s + (r.value ?? 0), 0)),
+    },
     generatedAt: "",
   };
 }
@@ -443,7 +499,7 @@ async function forecast(orgId: string): Promise<ReportData> {
     columns: [
       { key: "advisorName", label: "Advisor", type: "text" },
       { key: "quota", label: "Monthly Quota", type: "currency" },
-      { key: "wonMonth", label: "Won (MTD)", type: "currency" },
+      { key: "wonMonth", label: "Subscribed (MTD)", type: "currency" },
       { key: "attainment", label: "Attainment", type: "percent" },
       { key: "openValue", label: "Open Pipeline", type: "currency" },
       { key: "weighted", label: "Weighted Forecast", type: "currency" },
@@ -547,6 +603,8 @@ export async function buildReport(orgId: string, key: string, from: string, to: 
       return salesByKey(orgId, from, to, "product");
     case "pipeline-by-stage":
       return pipelineByStage(orgId);
+    case "pipeline-activity":
+      return pipelineActivity(orgId, from, to);
     case "forecast":
       return forecast(orgId);
     case "smartplan-transactions":

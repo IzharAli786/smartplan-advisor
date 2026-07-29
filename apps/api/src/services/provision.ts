@@ -6,7 +6,7 @@ const DEFAULT_STAGES = [
   { key: "contacted", label: "Contacted", sortOrder: 2, isConversion: false, isTerminal: false, winProbability: 25 },
   { key: "demo_scheduled", label: "Demo Scheduled", sortOrder: 3, isConversion: false, isTerminal: false, winProbability: 50 },
   { key: "proposal", label: "Proposal", sortOrder: 4, isConversion: false, isTerminal: false, winProbability: 70 },
-  { key: "won", label: "Won", sortOrder: 5, isConversion: true, isTerminal: true, winProbability: 100 },
+  { key: "won", label: "Subscribed", sortOrder: 5, isConversion: true, isTerminal: true, winProbability: 100 },
   { key: "lost", label: "Lost", sortOrder: 6, isConversion: false, isTerminal: true, winProbability: 0 },
 ];
 

@@ -103,8 +103,8 @@ export default function DashboardPage() {
 
       <StatGrid>
         <StatCard label="Open Opportunities" value={totals.open} sub="Across all advisors" icon={<Icon name="pipeline" />} to="/pipeline" />
-        <StatCard label="Pipeline Value" value={money(totals.value)} sub="Open, not yet won" icon={<Icon name="briefcase" />} to="/pipeline" />
-        <StatCard label="Won Deals" value={totals.won} sub="Converted" icon={<Icon name="check-circle" />} to="/reports" />
+        <StatCard label="Pipeline Value" value={money(totals.value)} sub="Open, not yet subscribed" icon={<Icon name="briefcase" />} to="/pipeline" />
+        <StatCard label="Subscribed Deals" value={totals.won} sub="Converted" icon={<Icon name="check-circle" />} to="/reports" />
         <StatCard label="Smart Advisors" value={totals.advisors} sub="Active roster" icon={<Icon name="users" />} to="/users" />
         <StatCard label="Pending Requests" value={totals.pending} sub="Awaiting review" icon={<Icon name="requests" />} to="/claims" />
       </StatGrid>
@@ -113,7 +113,7 @@ export default function DashboardPage() {
         <div className="chart-grid">
           <Card>
             <div className="row">
-              <h3>Won revenue — last 12 months</h3>
+              <h3>Subscribed revenue — last 12 months</h3>
               {cur && prev && <DeltaBadge cur={cur.wonValue} prev={prev.wonValue} />}
             </div>
             <div style={{ marginTop: ".6rem" }}>
@@ -124,8 +124,8 @@ export default function DashboardPage() {
           <Card>
             <h3>This month vs last month</h3>
             <div className="stack" style={{ gap: ".65rem", marginTop: ".6rem" }}>
-              <CompareRow label="Won revenue" cur={cur?.wonValue ?? 0} prev={prev?.wonValue ?? 0} currency />
-              <CompareRow label="Won deals" cur={cur?.wonCount ?? 0} prev={prev?.wonCount ?? 0} />
+              <CompareRow label="Subscribed revenue" cur={cur?.wonValue ?? 0} prev={prev?.wonValue ?? 0} currency />
+              <CompareRow label="Subscribed deals" cur={cur?.wonCount ?? 0} prev={prev?.wonCount ?? 0} />
               <CompareRow label="New opportunities" cur={cur?.newCount ?? 0} prev={prev?.newCount ?? 0} />
             </div>
           </Card>
@@ -138,7 +138,7 @@ export default function DashboardPage() {
           </Card>
 
           <Card>
-            <h3>Won by product — YTD</h3>
+            <h3>Subscribed by product — YTD</h3>
             <div style={{ marginTop: ".6rem" }}>
               <Donut data={analytics.products.map((p) => ({ label: p.product, value: p.value }))} />
             </div>

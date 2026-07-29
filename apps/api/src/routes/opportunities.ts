@@ -503,7 +503,7 @@ export async function registerOpportunityRoutes(app: FastifyInstance) {
       .where(and(eq(statusStages.orgId, user.orgId), eq(statusStages.isConversion, true), eq(statusStages.active, true)))
       .limit(1);
     const conversionStage = conversionRow?.key;
-    if (!conversionStage) throw conflict("No conversion (won) stage configured", "no_conversion_stage");
+    if (!conversionStage) throw conflict("No conversion (subscribed) stage configured", "no_conversion_stage");
 
     const now = new Date();
     await db
@@ -524,7 +524,7 @@ export async function registerOpportunityRoutes(app: FastifyInstance) {
       opportunityId: id,
       advisorId: user.id,
       type: "system",
-      subject: `Marked won · deal value ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(deal_value)}`,
+      subject: `Marked subscribed · deal value ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(deal_value)}`,
     });
     const [updated] = await db.select().from(opportunities).where(and(eq(opportunities.id, id), eq(opportunities.orgId, user.orgId))).limit(1);
     return { opportunity: mapOpp(updated!) };

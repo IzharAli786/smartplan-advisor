@@ -374,7 +374,7 @@ export default function SettingsPage() {
                 style={{ maxWidth: 200 }}
               />
               <div style={{ display: "flex", gap: 6 }}>
-                {s.isConversion && <StatusBadge label="won" kind="success" />}
+                {s.isConversion && <StatusBadge label="subscribed" kind="success" />}
                 {s.isTerminal && <StatusBadge label="terminal" />}
               </div>
             </div>

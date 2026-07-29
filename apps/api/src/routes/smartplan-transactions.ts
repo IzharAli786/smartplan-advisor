@@ -399,7 +399,7 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
       .set({ status: won.key, statusChangedAt: now, nextStep: null, nextStepDue: null, updatedAt: now, lastActivityAt: now })
       .where(eq(opportunities.id, opp.id));
     await ensureConversion(opp.id);
-    await logActivity({ opportunityId: opp.id, advisorId: opp.advisorId, type: "system", subject: "SmartPlan subscription activated — marked Won" });
+    await logActivity({ opportunityId: opp.id, advisorId: opp.advisorId, type: "system", subject: "SmartPlan subscription activated — marked Subscribed" });
     return { updated: true, event: "subscribed", stage: won.key };
   });
 

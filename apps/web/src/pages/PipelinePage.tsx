@@ -5,6 +5,7 @@ import { useStages, stageLabelMap, prettyKey } from "../hooks/useSettings.ts";
 import { AgeIndicator, Card, EmptyState, ErrorBanner, PageHead, Progress, Spinner, StatCard, StatGrid, StatusBadge } from "../components/ui.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { money } from "../lib/format.ts";
+import { stageTone } from "../lib/stage.ts";
 import { useAuth } from "../auth/AuthContext.tsx";
 import type { Opportunity, StatusStage } from "../api/types.ts";
 
@@ -71,8 +72,8 @@ export default function PipelinePage() {
       <StatGrid>
         <StatCard label="Opportunities" value={summary.total} sub={fromDate || toDate ? "In date range" : "All time"} icon={<Icon name="pipeline" />} />
         <StatCard label="Open" value={summary.open} sub="In progress" icon={<Icon name="clock" />} />
-        <StatCard label="Open Pipeline Value" value={money(summary.openValue)} sub="Open, not yet won" icon={<Icon name="briefcase" />} />
-        <StatCard label="Won" value={summary.won} sub="Converted" icon={<Icon name="check-circle" />} />
+        <StatCard label="Open Pipeline Value" value={money(summary.openValue)} sub="Open, not yet subscribed" icon={<Icon name="briefcase" />} />
+        <StatCard label="Subscribed" value={summary.won} sub="Converted" icon={<Icon name="check-circle" />} />
         <StatCard label="Total Value" value={money(summary.totalValue)} sub="All stages" icon={<Icon name="reports" />} />
       </StatGrid>
 
@@ -141,7 +142,7 @@ export default function PipelinePage() {
                       </div>
                     </div>
                   </div>
-                  <StatusBadge label={labels[o.status] ?? prettyKey(o.status)} />
+                  <StatusBadge label={labels[o.status] ?? prettyKey(o.status)} kind={stageTone(stageMap.get(o.status))} />
                 </div>
                 <div style={{ marginTop: ".75rem" }}>
                   <div className="row">
