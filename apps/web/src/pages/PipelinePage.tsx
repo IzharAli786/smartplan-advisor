@@ -25,6 +25,7 @@ export default function PipelinePage() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [sortBy, setSortBy] = useState<"newest" | "company" | "state">("newest");
   const { data: stagesData } = useStages();
   const { data, loading, error } = useApi<{ opportunities: Opportunity[] }>("/api/opportunities");
   const labels = stageLabelMap(stagesData?.stages);
@@ -38,6 +39,15 @@ export default function PipelinePage() {
     return (!fromDate || day >= fromDate) && (!toDate || day <= toDate);
   });
   const visible = statusFilter ? dateFiltered.filter((o) => o.status === statusFilter) : dateFiltered;
+  // "newest" keeps the API's created-desc order; the others sort a copy.
+  const shown =
+    sortBy === "newest"
+      ? visible
+      : [...visible].sort((a, b) =>
+          sortBy === "company"
+            ? a.contractorCompanyName.localeCompare(b.contractorCompanyName, undefined, { sensitivity: "base" })
+            : (a.state ?? "").localeCompare(b.state ?? "")
+        );
 
   const num = (v: number | null | undefined) => (v == null ? 0 : v);
   const summary = {
@@ -88,6 +98,14 @@ export default function PipelinePage() {
             <label style={{ fontSize: ".75rem" }}>To</label>
             <input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} />
           </div>
+          <div className="field" style={{ margin: 0, minWidth: 160 }}>
+            <label style={{ fontSize: ".75rem" }}>Sort</label>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+              <option value="newest">Newest first</option>
+              <option value="company">Company A–Z</option>
+              <option value="state">State A–Z</option>
+            </select>
+          </div>
           {(fromDate || toDate) && (
             <button className="btn small ghost" onClick={() => { setFromDate(""); setToDate(""); }}>
               <Icon name="x" size={14} /> Clear
@@ -125,7 +143,7 @@ export default function PipelinePage() {
       ) : visible.length === 0 ? (
         <EmptyState icon="pipeline" title="No opportunities match these filters" hint="Try a wider date range or a different stage." />
       ) : (
-        visible.map((o) => {
+        shown.map((o) => {
           const c = completion(o.status, stagesData?.stages ?? []);
           return (
             <Link key={o.id} to={`/opportunity/${o.id}`} style={{ color: "inherit" }}>

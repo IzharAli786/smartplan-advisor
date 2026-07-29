@@ -41,6 +41,36 @@ export default function LeadsPage() {
   const { data, loading, error, reload } = useApi<{ leads: Lead[] }>(`/api/leads${qs}`, [qs]);
   const leads = data?.leads ?? [];
 
+  // Column sorting (client-side — the whole filtered list is already loaded).
+  const [sortKey, setSortKey] = useState<"company" | "location" | "employees" | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  function toggleSort(key: "company" | "location" | "employees") {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+  const sortArrow = (key: string) => (sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "");
+  const ariaSort = (key: string) => (sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : undefined);
+  const sortedLeads = useMemo(() => {
+    if (!sortKey) return leads;
+    const dir = sortDir === "asc" ? 1 : -1;
+    const loc = (l: Lead) => [l.companyCity, l.companyState].filter(Boolean).join(", ");
+    return [...leads].sort((a, b) => {
+      if (sortKey === "employees") {
+        // Unknown employee counts sink to the bottom in either direction.
+        if (a.numEmployees == null && b.numEmployees == null) return 0;
+        if (a.numEmployees == null) return 1;
+        if (b.numEmployees == null) return -1;
+        return (a.numEmployees - b.numEmployees) * dir;
+      }
+      const av = sortKey === "company" ? a.companyName : loc(a);
+      const bv = sortKey === "company" ? b.companyName : loc(b);
+      return av.localeCompare(bv, undefined, { sensitivity: "base" }) * dir;
+    });
+  }, [leads, sortKey, sortDir]);
+
   const [expanded, setExpanded] = useState<string | null>(null);
   const [actErr, setActErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -268,17 +298,23 @@ export default function LeadsPage() {
               <thead>
                 <tr>
                   <th></th>
-                  <th>Company</th>
+                  <th className="th-sort" aria-sort={ariaSort("company")} onClick={() => toggleSort("company")}>
+                    Company{sortArrow("company")}
+                  </th>
                   <th>Contact</th>
-                  <th>Location</th>
-                  <th style={{ textAlign: "right" }}>Employees</th>
+                  <th className="th-sort" aria-sort={ariaSort("location")} onClick={() => toggleSort("location")}>
+                    Location{sortArrow("location")}
+                  </th>
+                  <th className="th-sort" style={{ textAlign: "right" }} aria-sort={ariaSort("employees")} onClick={() => toggleSort("employees")}>
+                    Employees{sortArrow("employees")}
+                  </th>
                   {isManager && <th>Advisor</th>}
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {leads.map((l) => {
+                {sortedLeads.map((l) => {
                   const person = [l.firstName, l.lastName].filter(Boolean).join(" ");
                   const open = expanded === l.id;
                   return (
