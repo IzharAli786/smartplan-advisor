@@ -15,6 +15,11 @@ export const registerSchema = z.object({
   full_name: z.string().trim().min(1, "Your name is required").max(160),
   email: z.string().trim().email("Enter a valid email"),
   password: z.string().min(10, "Use at least 10 characters"),
+  heard_about: z
+    .string({ required_error: "Tell us how you heard about us" })
+    .trim()
+    .min(1, "Tell us how you heard about us")
+    .max(300),
   currency: z.enum(CURRENCY_CODES).default(DEFAULT_CURRENCY),
   date_format: z.enum(DATE_FORMAT_VALUES).default(DEFAULT_DATE_FORMAT),
 });

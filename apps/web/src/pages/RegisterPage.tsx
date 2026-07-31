@@ -15,6 +15,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [heardAbout, setHeardAbout] = useState("");
   const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
   const [dateFormat, setDateFormat] = useState<string>(DEFAULT_DATE_FORMAT);
   const [error, setError] = useState<string | null>(null);
@@ -32,10 +33,14 @@ export default function RegisterPage() {
       setError("Passwords don't match.");
       return;
     }
+    if (!heardAbout.trim()) {
+      setError("Tell us how you heard about us.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await register({ companyName, fullName, email, password, currency, dateFormat });
+      await register({ companyName, fullName, email, password, heardAbout, currency, dateFormat });
       navigate("/");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not create your account");
@@ -74,6 +79,17 @@ export default function RegisterPage() {
           <div className="field">
             <label htmlFor="confirm-password">Confirm password</label>
             <PasswordInput id="confirm-password" autoComplete="new-password" value={confirmPassword} onChange={setConfirmPassword} required />
+          </div>
+          <div className="field">
+            <label htmlFor="heard-about">How did you hear about us?</label>
+            <input
+              id="heard-about"
+              value={heardAbout}
+              onChange={(e) => setHeardAbout(e.target.value)}
+              placeholder="e.g. a colleague's name, Google, trade show…"
+              maxLength={300}
+              required
+            />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: ".75rem" }}>
             <div className="field">

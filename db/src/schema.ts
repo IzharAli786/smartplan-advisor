@@ -74,6 +74,8 @@ export const organizations = pgTable("organizations", {
   dateFormat: text("date_format").notNull().default("MM/DD/YYYY"),
   lightLogoKey: text("light_logo_key"), // portal logo for light backgrounds
   darkLogoKey: text("dark_logo_key"), // portal logo for dark backgrounds (sidebar)
+  /** "How did you hear about us?" — free text from registration. Null for orgs that predate the question. */
+  heardAbout: text("heard_about"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -398,6 +400,18 @@ export const leads = pgTable("leads", {
   customFields: jsonb("custom_fields").notNull().default({}),
   convertedOpportunityId: uuid("converted_opportunity_id"),
   createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Advisor Notes on a lead — dated, editable rows, separate from leads.notes
+ *  (which carries what the Apollo import brought in). */
+export const leadNotes = pgTable("lead_notes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id").notNull(),
+  leadId: uuid("lead_id").notNull(),
+  authorId: uuid("author_id"),
+  body: text("body").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

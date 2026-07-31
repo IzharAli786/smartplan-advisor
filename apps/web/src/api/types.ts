@@ -431,6 +431,16 @@ export interface Collateral {
   createdAt: string;
 }
 
+/** An Advisor Note on a lead — dated, editable; separate from the Apollo-imported notes field. */
+export interface LeadNote {
+  id: string;
+  body: string;
+  authorId: string | null;
+  authorName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** One advisor card on the Team page (bios are org-visible by design). */
 export interface TeamMember {
   id: string;

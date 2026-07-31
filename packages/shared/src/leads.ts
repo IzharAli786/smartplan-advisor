@@ -244,6 +244,12 @@ export const leadUpdateSchema = z.object({
 });
 export type LeadUpdateInput = z.infer<typeof leadUpdateSchema>;
 
+/** An Advisor Note on a lead — dated, editable, separate from the Apollo-imported notes field. */
+export const leadNoteSchema = z.object({
+  body: z.string().trim().min(1, "Write a note first").max(4000),
+});
+export type LeadNoteInput = z.infer<typeof leadNoteSchema>;
+
 export const leadConvertSchema = z.object({
   product: z.string().trim().max(160).optional().or(z.literal("").transform(() => undefined)),
   opportunity_value: z.coerce.number().min(0).max(1_000_000_000).optional(),

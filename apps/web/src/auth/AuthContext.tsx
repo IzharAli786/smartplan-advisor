@@ -9,6 +9,7 @@ interface RegisterFields {
   fullName: string;
   email: string;
   password: string;
+  heardAbout: string;
   currency: string;
   dateFormat: string;
 }
@@ -64,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       full_name: fields.fullName,
       email: fields.email,
       password: fields.password,
+      heard_about: fields.heardAbout,
       currency: fields.currency,
       date_format: fields.dateFormat,
     });

@@ -102,6 +102,8 @@ const DOCTOR_MARKERS: Array<{
   { migration: "0029_advisor_profiles_own_resources", table: "users", column: "bio" },
   { migration: "0029_advisor_profiles_own_resources", table: "collateral", column: "owner_id" },
   { migration: "0029_advisor_profiles_own_resources", table: "advisor_feedback" },
+  { migration: "0030_org_heard_about", table: "organizations", column: "heard_about" },
+  { migration: "0031_lead_advisor_notes", table: "lead_notes" },
 ];
 
 type Sql = ReturnType<typeof postgres>;

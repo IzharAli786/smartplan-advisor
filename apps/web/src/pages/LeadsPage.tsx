@@ -8,7 +8,7 @@ import { Card, ErrorBanner, PageHead, Spinner } from "../components/ui.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { dateShort } from "../lib/format.ts";
 import { LEAD_STATUSES } from "@smart-crm/shared";
-import type { CurrentUser, Lead } from "../api/types.ts";
+import type { CurrentUser, Lead, LeadNote } from "../api/types.ts";
 
 const STATUS_KIND: Record<Lead["status"], string> = { new: "lead-new", claimed: "lead-working", converted: "lead-converted", dismissed: "lead-dismissed" };
 // Converting DELETES the lead (it lives on as a pipeline opportunity), so
@@ -503,6 +503,118 @@ function EditField({
   );
 }
 
+/** Advisor Notes on a lead: dated entries advisors add over time, each editable
+ *  by its author (or a super admin). Separate from the Apollo-imported Notes field. */
+function AdvisorNotes({ leadId }: { leadId: string }) {
+  const { user, isManager } = useAuth();
+  const { data, loading, reload } = useApi<{ notes: LeadNote[] }>(`/api/leads/${leadId}/notes`, [leadId]);
+  const [draft, setDraft] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const notes = data?.notes ?? [];
+
+  async function add() {
+    if (!draft.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.post(`/api/leads/${leadId}/notes`, { body: draft });
+      setDraft("");
+      reload();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not add the note");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveEdit(noteId: string) {
+    if (!editDraft.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.patch(`/api/leads/${leadId}/notes/${noteId}`, { body: editDraft });
+      setEditingId(null);
+      reload();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not save the note");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ padding: "0 1.25rem 1rem" }}>
+      <div className="lead-detail-label" style={{ marginBottom: ".35rem" }}>Advisor Notes</div>
+      <ErrorBanner message={err} />
+      {loading ? (
+        <div className="muted" style={{ fontSize: ".82rem" }}>Loading notes…</div>
+      ) : notes.length === 0 ? (
+        <div className="muted" style={{ fontSize: ".82rem" }}>No advisor notes yet.</div>
+      ) : (
+        notes.map((n) => {
+          const edited = n.updatedAt !== n.createdAt;
+          const canEdit = isManager || n.authorId === user?.id;
+          return (
+            <div key={n.id} style={{ padding: ".45rem 0", borderBottom: "1px solid var(--color-border)" }}>
+              <div className="row" style={{ justifyContent: "flex-start", gap: ".5rem", flexWrap: "wrap" }}>
+                <span className="muted" style={{ fontSize: ".78rem" }}>
+                  {n.authorName ?? "Advisor"} · {dateShort(n.createdAt)}
+                  {edited && ` · edited ${dateShort(n.updatedAt)}`}
+                </span>
+                {canEdit && editingId !== n.id && (
+                  <button
+                    className="btn small ghost"
+                    onClick={() => { setEditingId(n.id); setEditDraft(n.body); setErr(null); }}
+                  >
+                    <Icon name="edit" size={13} /> Edit
+                  </button>
+                )}
+              </div>
+              {editingId === n.id ? (
+                <div style={{ marginTop: ".35rem" }}>
+                  <textarea
+                    rows={3}
+                    maxLength={4000}
+                    value={editDraft}
+                    onChange={(e) => setEditDraft(e.target.value)}
+                    style={{ width: "100%" }}
+                  />
+                  <div className="row" style={{ justifyContent: "flex-start", gap: ".5rem", marginTop: ".35rem" }}>
+                    <button className="btn small" disabled={busy || !editDraft.trim()} onClick={() => saveEdit(n.id)}>
+                      {busy ? "Saving…" : "Save"}
+                    </button>
+                    <button className="btn small secondary" disabled={busy} onClick={() => setEditingId(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginTop: ".2rem", whiteSpace: "pre-wrap" }}>{n.body}</div>
+              )}
+            </div>
+          );
+        })
+      )}
+      <div className="row" style={{ justifyContent: "flex-start", gap: ".5rem", marginTop: ".6rem", alignItems: "flex-start" }}>
+        <textarea
+          rows={2}
+          maxLength={4000}
+          placeholder="Add a note about this lead…"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          style={{ flex: 1 }}
+        />
+        <button className="btn small" disabled={busy || !draft.trim()} onClick={add}>
+          Add note
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Expanded details: only the fields that actually have a value, in a tidy grid.
  *  Managers also get a "Reassign to" control (advisors + onReassign are only
  *  passed for managers — the API enforces the same rule). */
@@ -535,7 +647,8 @@ function LeadDetailRow({
     { label: "Imported", value: dateShort(l.createdAt) },
     { label: "Technologies", value: l.technologies, wide: true },
     { label: "Keywords", value: l.keywords, wide: true },
-    { label: "Notes", value: l.notes, wide: true },
+    // The Apollo-imported notes, dated with when the lead came in.
+    { label: `Notes · ${dateShort(l.createdAt)}`, value: l.notes, wide: true },
   ].filter((f) => f.value);
 
   return (
@@ -554,6 +667,7 @@ function LeadDetailRow({
           ))}
           {fields.length === 0 && <div className="muted">No additional details on this lead.</div>}
         </div>
+        <AdvisorNotes leadId={l.id} />
         {advisors && onReassign && (
           <div
             className="row"

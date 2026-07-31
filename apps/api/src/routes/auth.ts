@@ -62,7 +62,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 
     const [org] = await db
       .insert(organizations)
-      .values({ name: input.company_name, currency: input.currency, dateFormat: input.date_format })
+      .values({ name: input.company_name, currency: input.currency, dateFormat: input.date_format, heardAbout: input.heard_about })
       .returning({ id: organizations.id });
     await provisionOrg(org!.id);
 

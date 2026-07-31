@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, ilike, or } from "drizzle-orm";
-import { db, leads, opportunities, users } from "@smart-crm/db";
+import { db, leads, leadNotes, opportunities, users } from "@smart-crm/db";
 import {
   importAnalyzeSchema,
   leadImportCommitSchema,
   leadUpdateSchema,
+  leadNoteSchema,
   leadConvertSchema,
   mapApolloColumns,
   APOLLO_LEAD_FIELDS,
@@ -214,6 +215,90 @@ export async function registerLeadRoutes(app: FastifyInstance) {
       .limit(2000);
 
     return { leads: rows.map((r) => ({ ...r.lead, advisorName: r.advisorName })) };
+  });
+
+  /** The lead, if the caller may work with it: org-scoped; advisors only their own. */
+  async function requireLeadAccess(user: { id: string; orgId: string; role: string }, leadId: string) {
+    const [lead] = await db.select().from(leads).where(and(eq(leads.id, leadId), eq(leads.orgId, user.orgId))).limit(1);
+    if (!lead) throw notFound("Lead not found");
+    if (user.role !== "super_admin" && lead.assignedAdvisorId !== user.id) throw forbidden();
+    return lead;
+  }
+
+  // GET /api/leads/:id/notes — Advisor Notes, newest first (leads.notes carries the Apollo info).
+  app.get("/:id/notes", async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params as { id: string };
+    await requireLeadAccess(user, id);
+    const rows = await db
+      .select({
+        id: leadNotes.id,
+        body: leadNotes.body,
+        authorId: leadNotes.authorId,
+        authorName: users.fullName,
+        createdAt: leadNotes.createdAt,
+        updatedAt: leadNotes.updatedAt,
+      })
+      .from(leadNotes)
+      .leftJoin(users, eq(users.id, leadNotes.authorId))
+      .where(eq(leadNotes.leadId, id))
+      .orderBy(desc(leadNotes.createdAt));
+    return { notes: rows };
+  });
+
+  // POST /api/leads/:id/notes — add an Advisor Note.
+  app.post("/:id/notes", async (req, reply) => {
+    const user = requireUser(req);
+    const { id } = req.params as { id: string };
+    const input = parse(leadNoteSchema, req.body);
+    await requireLeadAccess(user, id);
+    const [created] = await db
+      .insert(leadNotes)
+      .values({ orgId: user.orgId, leadId: id, authorId: user.id, body: input.body })
+      .returning();
+    reply.code(201);
+    return {
+      note: {
+        id: created!.id,
+        body: created!.body,
+        authorId: created!.authorId,
+        authorName: user.fullName,
+        createdAt: created!.createdAt,
+        updatedAt: created!.updatedAt,
+      },
+    };
+  });
+
+  // PATCH /api/leads/:id/notes/:noteId — edit a note. Its author or a super admin.
+  app.patch("/:id/notes/:noteId", async (req) => {
+    const user = requireUser(req);
+    const { id, noteId } = req.params as { id: string; noteId: string };
+    const input = parse(leadNoteSchema, req.body);
+    await requireLeadAccess(user, id);
+    const [note] = await db
+      .select()
+      .from(leadNotes)
+      .where(and(eq(leadNotes.id, noteId), eq(leadNotes.leadId, id), eq(leadNotes.orgId, user.orgId)))
+      .limit(1);
+    if (!note) throw notFound("Note not found");
+    if (user.role !== "super_admin" && note.authorId !== user.id) {
+      throw forbidden("You can only edit notes you wrote");
+    }
+    const [updated] = await db
+      .update(leadNotes)
+      .set({ body: input.body, updatedAt: new Date() })
+      .where(eq(leadNotes.id, noteId))
+      .returning();
+    return {
+      note: {
+        id: updated!.id,
+        body: updated!.body,
+        authorId: updated!.authorId,
+        authorName: null, // caller keeps the name it already has
+        createdAt: updated!.createdAt,
+        updatedAt: updated!.updatedAt,
+      },
+    };
   });
 
   // PATCH /api/leads/:id — status / notes / detail edits; managers may also reassign.
