@@ -375,6 +375,21 @@ export const logActivitySchema = z.object({
 });
 export type LogActivityInput = z.infer<typeof logActivitySchema>;
 
+/** ── Advisor profile (Team page) ───────────────────────── */
+// Bio + unique capabilities, written by the advisor, visible to all signed-in
+// users in the org. PUT semantics: omitted/empty fields clear the value.
+export const advisorProfileSchema = z.object({
+  bio: z.string().trim().max(4000).optional().or(z.literal("").transform(() => undefined)),
+  capabilities: z.string().trim().max(4000).optional().or(z.literal("").transform(() => undefined)),
+});
+export type AdvisorProfileInput = z.infer<typeof advisorProfileSchema>;
+
+/** Feedback a super admin writes FOR an advisor (visible to that advisor only). */
+export const advisorFeedbackSchema = z.object({
+  body: z.string().trim().min(1, "Write some feedback first").max(4000),
+});
+export type AdvisorFeedbackInput = z.infer<typeof advisorFeedbackSchema>;
+
 /** ── Feedback (forwarded to SmartPlan's central eco-admin inbox) ── */
 // Values mirror SmartPlan's feedback table exactly — the advisor API forwards
 // them verbatim and SmartPlan re-validates on its side.

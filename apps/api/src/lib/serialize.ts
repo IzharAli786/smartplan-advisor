@@ -23,6 +23,8 @@ export interface UserRow {
   enrolledDate?: string | null;
   referredBy?: string | null;
   notes: string | null;
+  bio?: string | null;
+  capabilities?: string | null;
   statesCovered: string[];
   avatarKey?: string | null;
   currentCommissionRate: string | null;
@@ -54,6 +56,9 @@ export function serializeUser(row: UserRow, viewerRole: Role) {
     referralLink: row.referralLink ?? null,
     enrolledDate: row.enrolledDate ?? null,
     referredBy: row.referredBy ?? null,
+    // Advisor-written profile — org-visible by design (Team page), unlike notes.
+    bio: row.bio ?? null,
+    capabilities: row.capabilities ?? null,
     statesCovered: row.statesCovered,
     avatarUrl: row.avatarKey ? storage.signedUrl(row.avatarKey, 3600) : null,
     monthlyQuota: row.monthlyQuota === null ? null : Number(row.monthlyQuota),

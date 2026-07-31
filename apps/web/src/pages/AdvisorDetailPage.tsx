@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useApi } from "../hooks/useApi.ts";
 import { useStages, stageLabelMap, prettyKey } from "../hooks/useSettings.ts";
-import { api } from "../api/client.ts";
+import { api, ApiError } from "../api/client.ts";
 import { Card, EmptyState, ErrorBanner, PageHead, Spinner, StatCard, StatGrid, StatusBadge } from "../components/ui.tsx";
 import { Icon } from "../components/Icon.tsx";
 import PerformancePanel from "../components/PerformancePanel.tsx";
@@ -10,7 +10,7 @@ import SmartPlanTransactions from "../components/SmartPlanTransactions.tsx";
 import { exportStatementPdf } from "../lib/export.ts";
 import { dateShort, money, pct } from "../lib/format.ts";
 import { stageTone } from "../lib/stage.ts";
-import type { CommissionStatement, CurrentUser, Opportunity, StatusStage } from "../api/types.ts";
+import type { AdvisorFeedbackEntry, CommissionStatement, CurrentUser, Opportunity, StatusStage } from "../api/types.ts";
 
 export default function AdvisorDetailPage() {
   const { id } = useParams();
@@ -255,6 +255,26 @@ export default function AdvisorDetailPage() {
           </Card>
 
           <Card>
+            <h3>Bio &amp; capabilities</h3>
+            <p className="muted" style={{ fontSize: ".78rem", marginBottom: ".6rem" }}>
+              Written by the advisor; visible to the whole team on the Team page.
+            </p>
+            {advisor.bio ? <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>{advisor.bio}</p> : <p className="muted" style={{ margin: 0 }}>No bio yet.</p>}
+            {advisor.capabilities && (
+              <>
+                <div className="muted" style={{ fontSize: ".78rem", marginTop: ".7rem", fontWeight: 600 }}>
+                  Unique capabilities
+                </div>
+                <p style={{ whiteSpace: "pre-wrap", margin: ".2rem 0 0" }}>{advisor.capabilities}</p>
+              </>
+            )}
+          </Card>
+
+          <ManagementNotesCard advisor={advisor} reload={reloadUser} />
+
+          {id && <AdvisorFeedbackCard advisorId={id} />}
+
+          <Card>
             <h3 style={{ display: "flex", alignItems: "center", gap: ".4rem" }}>
               <Icon name="commission" size={17} /> Commission
             </h3>
@@ -326,5 +346,132 @@ export default function AdvisorDetailPage() {
       </div>
       <PerformancePanel advisorId={id} />
     </div>
+  );
+}
+
+/** Private notes about this advisor. Server-side these live on users.notes,
+ *  which serializeUser only ever returns to managerial viewers (§11.1-style). */
+function ManagementNotesCard({ advisor, reload }: { advisor: CurrentUser; reload: () => void }) {
+  const [notes, setNotes] = useState(advisor.notes ?? "");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setNotes(advisor.notes ?? "");
+    setSaved(false);
+  }, [advisor.notes]);
+
+  async function save() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.patch(`/api/users/${advisor.id}`, { notes });
+      setSaved(true);
+      reload();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not save notes");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <h3 style={{ display: "flex", alignItems: "center", gap: ".4rem" }}>
+        <Icon name="edit" size={17} /> Management notes
+      </h3>
+      <p className="muted" style={{ fontSize: ".78rem", marginBottom: ".6rem" }}>
+        Only visible to super admins — the advisor never sees these.
+      </p>
+      <ErrorBanner message={err} />
+      <div className="field" style={{ marginBottom: ".6rem" }}>
+        <textarea
+          rows={4}
+          maxLength={2000}
+          placeholder="Private notes about this advisor…"
+          value={notes}
+          onChange={(e) => { setNotes(e.target.value); setSaved(false); }}
+        />
+      </div>
+      <button className="btn" onClick={save} disabled={busy}>
+        {saved ? "Saved ✓" : busy ? "Saving…" : "Save notes"}
+      </button>
+    </Card>
+  );
+}
+
+/** Feedback written FOR this advisor — the advisor sees it on their Team page. */
+function AdvisorFeedbackCard({ advisorId }: { advisorId: string }) {
+  const { data, loading, reload } = useApi<{ feedback: AdvisorFeedbackEntry[] }>(`/api/team/${advisorId}/feedback`, [advisorId]);
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const entries = data?.feedback ?? [];
+
+  async function add() {
+    if (!body.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.post(`/api/team/${advisorId}/feedback`, { body });
+      setBody("");
+      reload();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not add feedback");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: string) {
+    try {
+      await api.delete(`/api/team/${advisorId}/feedback/${id}`);
+      reload();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not delete feedback");
+    }
+  }
+
+  return (
+    <Card>
+      <h3 style={{ display: "flex", alignItems: "center", gap: ".4rem" }}>
+        <Icon name="message-square" size={17} /> Feedback
+      </h3>
+      <p className="muted" style={{ fontSize: ".78rem", marginBottom: ".6rem" }}>
+        Shared with the advisor — they see this under “Feedback from your manager”.
+      </p>
+      <ErrorBanner message={err} />
+      <div className="field" style={{ marginBottom: ".6rem" }}>
+        <textarea
+          rows={3}
+          maxLength={4000}
+          placeholder="Write feedback for this advisor…"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+        />
+      </div>
+      <button className="btn" onClick={add} disabled={busy || !body.trim()}>
+        {busy ? "Adding…" : "Add feedback"}
+      </button>
+
+      {loading ? null : entries.length === 0 ? (
+        <p className="muted" style={{ fontSize: ".82rem", marginTop: ".8rem" }}>No feedback yet.</p>
+      ) : (
+        entries.map((f) => (
+          <div key={f.id} style={{ marginTop: ".8rem", borderTop: "1px solid var(--color-border)", paddingTop: ".6rem" }}>
+            <div className="row">
+              <span className="muted" style={{ fontSize: ".78rem" }}>
+                {f.authorName ?? "Manager"} · {dateShort(f.createdAt)}
+              </span>
+              <button className="btn small ghost icon-only" aria-label="Delete feedback" onClick={() => remove(f.id)}>
+                <Icon name="trash" size={14} />
+              </button>
+            </div>
+            <p style={{ margin: ".15rem 0 0", whiteSpace: "pre-wrap" }}>{f.body}</p>
+          </div>
+        ))
+      )}
+    </Card>
   );
 }

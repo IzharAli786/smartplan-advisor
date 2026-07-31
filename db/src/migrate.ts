@@ -99,6 +99,9 @@ const DOCTOR_MARKERS: Array<{
   { migration: "0024_takeover_rework", table: "opportunities", column: "company_key" },
   { migration: "0024_takeover_rework", table: "transactions", column: "voided_at" },
   { migration: "0024_takeover_rework", table: "claim_requests", column: "matched_on" },
+  { migration: "0029_advisor_profiles_own_resources", table: "users", column: "bio" },
+  { migration: "0029_advisor_profiles_own_resources", table: "collateral", column: "owner_id" },
+  { migration: "0029_advisor_profiles_own_resources", table: "advisor_feedback" },
 ];
 
 type Sql = ReturnType<typeof postgres>;

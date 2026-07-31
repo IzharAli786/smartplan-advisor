@@ -29,6 +29,7 @@ import { registerHighFiveRoutes } from "./routes/high-fives.js";
 import { registerSmartPlanTxnRoutes } from "./routes/smartplan-transactions.js";
 import { registerPublicQuoteRoutes } from "./routes/public-quotes.js";
 import { registerFeedbackRoutes } from "./routes/feedback.js";
+import { registerTeamRoutes } from "./routes/team.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -83,6 +84,7 @@ export async function buildApp() {
   await app.register(registerHighFiveRoutes, { prefix: "/api/high-fives" });
   await app.register(registerSmartPlanTxnRoutes, { prefix: "/api/smartplan-transactions" });
   await app.register(registerFeedbackRoutes, { prefix: "/api/feedback" });
+  await app.register(registerTeamRoutes, { prefix: "/api/team" });
   await app.register(registerPublicQuoteRoutes); // /api/public/quotes/:token — NO auth
   await app.register(registerFileRoutes); // /files/:key
 

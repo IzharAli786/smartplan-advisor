@@ -35,6 +35,7 @@ import LeadsPage from "./pages/LeadsPage.tsx";
 import PerformancePage from "./pages/PerformancePage.tsx";
 import MyEarningsPage from "./pages/MyEarningsPage.tsx";
 import FeedbackPage from "./pages/FeedbackPage.tsx";
+import TeamPage from "./pages/TeamPage.tsx";
 
 /** Index route: advisors land on Today; managers on the Dashboard. */
 function HomeRoute() {
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="/performance" element={<PerformancePage />} />
         <Route path="/my-earnings" element={<MyEarningsPage />} />
         <Route path="/feedback" element={<FeedbackPage />} />
+        <Route path="/team" element={<TeamPage />} />
 
         {/* Managerial */}
         <Route path="/dashboard" element={<RequireManager><DashboardPage /></RequireManager>} />

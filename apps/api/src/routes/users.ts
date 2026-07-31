@@ -27,6 +27,8 @@ const listColumns = {
   enrolledDate: users.enrolledDate,
   referredBy: users.referredBy,
   notes: users.notes,
+  bio: users.bio,
+  capabilities: users.capabilities,
   statesCovered: users.statesCovered,
   avatarKey: users.avatarKey,
   currentCommissionRate: users.currentCommissionRate,

@@ -22,6 +22,9 @@ export interface CurrentUser {
   referralLink?: string | null;
   enrolledDate?: string | null;
   referredBy?: string | null;
+  /** Advisor-written profile — visible to everyone in the org (Team page). */
+  bio?: string | null;
+  capabilities?: string | null;
   statesCovered: string[];
   avatarUrl?: string | null;
   apolloCreditAllowanceMonthly: number | null;
@@ -422,8 +425,29 @@ export interface Collateral {
   externalUrl: string | null;
   thumbnailUrl: string | null;
   sortOrder: number;
+  /** null = org library published by a super admin; set = that advisor's personal resource. */
+  ownerId: string | null;
   active: boolean;
   createdAt: string;
+}
+
+/** One advisor card on the Team page (bios are org-visible by design). */
+export interface TeamMember {
+  id: string;
+  fullName: string;
+  email: string;
+  statesCovered: string[];
+  avatarUrl: string | null;
+  bio: string | null;
+  capabilities: string | null;
+}
+
+/** Feedback a super admin wrote FOR an advisor (visible to that advisor only). */
+export interface AdvisorFeedbackEntry {
+  id: string;
+  body: string;
+  createdAt: string;
+  authorName: string | null;
 }
 
 export interface AdvisorRollup {

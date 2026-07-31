@@ -17,7 +17,7 @@ const TYPE_ICON: Record<Collateral["type"], IconName> = {
 };
 
 export default function LibraryPage() {
-  const { isManager } = useAuth();
+  const { user, isManager } = useAuth();
   const [params, setParams] = useSearchParams();
   const product = params.get("product") ?? "";
   const [q, setQ] = useState("");
@@ -57,7 +57,7 @@ export default function LibraryPage() {
       <PageHead
         title="Resources"
         subtitle="Marketing collateral & videos by product"
-        actions={isManager ? <ManageActions products={products} reload={reload} /> : undefined}
+        actions={<ManageActions products={products} reload={reload} personal={!isManager} />}
       />
       <ErrorBanner message={error} />
 
@@ -88,39 +88,45 @@ export default function LibraryPage() {
           hint={isManager ? "Use “Add to resources” to upload files or add a video/link." : product ? `Nothing for ${product} yet.` : "Check back soon."}
         />
       ) : (
-        data.collateral.map((c) => (
-          <Card key={c.id} className={c.active ? "" : "lib-hidden"}>
-            <div className="row" style={{ justifyContent: "flex-start", gap: ".75rem" }}>
-              <span className="icon-tile">
-                <Icon name={TYPE_ICON[c.type]} size={20} />
-              </span>
-              <div style={{ flex: 1 }}>
-                <div className="row" style={{ justifyContent: "flex-start", gap: ".5rem" }}>
-                  <strong>{c.title}</strong>
-                  {isManager && !c.active && <StatusBadge label="hidden" kind="overdue" />}
-                </div>
-                <div className="muted" style={{ fontSize: ".78rem" }}>
-                  {c.product}
+        data.collateral.map((c) => {
+          const mine = c.ownerId != null && c.ownerId === user?.id;
+          return (
+            <Card key={c.id} className={c.active ? "" : "lib-hidden"}>
+              <div className="row" style={{ justifyContent: "flex-start", gap: ".75rem" }}>
+                <span className="icon-tile">
+                  <Icon name={TYPE_ICON[c.type]} size={20} />
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div className="row" style={{ justifyContent: "flex-start", gap: ".5rem" }}>
+                    <strong>{c.title}</strong>
+                    {mine && <StatusBadge label="My resource" kind="success" />}
+                    {isManager && c.ownerId != null && <StatusBadge label="Advisor-added" />}
+                    {isManager && !c.active && <StatusBadge label="hidden" kind="overdue" />}
+                  </div>
+                  <div className="muted" style={{ fontSize: ".78rem" }}>
+                    {c.product}
+                  </div>
                 </div>
               </div>
-            </div>
-            {c.description && <p className="muted" style={{ marginTop: 8 }}>{c.description}</p>}
-            <div className="row" style={{ marginTop: ".75rem", gap: ".5rem", justifyContent: "flex-start" }}>
-              {(c.fileUrl || c.externalUrl) && (
-                <a className="btn small" href={c.fileUrl ?? c.externalUrl ?? "#"} target="_blank" rel="noreferrer">
-                  <Icon name={c.type === "video" ? "video" : "external-link"} size={15} />
-                  {c.type === "video" ? "Watch" : c.type === "link" ? "Open" : "View"}
-                </a>
-              )}
-              <button className="btn small secondary" onClick={() => share(c)}>
-                <Icon name="share" size={15} />
-                Share
-              </button>
-              {isManager && <HideToggle c={c} reload={reload} />}
-              {isManager && <DeleteAction c={c} reload={reload} />}
-            </div>
-          </Card>
-        ))
+              {c.description && <p className="muted" style={{ marginTop: 8 }}>{c.description}</p>}
+              <div className="row" style={{ marginTop: ".75rem", gap: ".5rem", justifyContent: "flex-start" }}>
+                {(c.fileUrl || c.externalUrl) && (
+                  <a className="btn small" href={c.fileUrl ?? c.externalUrl ?? "#"} target="_blank" rel="noreferrer">
+                    <Icon name={c.type === "video" ? "video" : "external-link"} size={15} />
+                    {c.type === "video" ? "Watch" : c.type === "link" ? "Open" : "View"}
+                  </a>
+                )}
+                <button className="btn small secondary" onClick={() => share(c)}>
+                  <Icon name="share" size={15} />
+                  Share
+                </button>
+                {isManager && <HideToggle c={c} reload={reload} />}
+                {/* Advisors may delete only their own resources — never the org library. */}
+                {(isManager || mine) && <DeleteAction c={c} mine={mine} reload={reload} />}
+              </div>
+            </Card>
+          );
+        })
       )}
     </div>
   );
@@ -145,8 +151,8 @@ function HideToggle({ c, reload }: { c: Collateral; reload: () => void }) {
   );
 }
 
-/** Managerial-only: permanently remove an item (and its uploaded file) from the library. */
-function DeleteAction({ c, reload }: { c: Collateral; reload: () => void }) {
+/** Permanently remove an item (and its uploaded file). Managers: any item; advisors: only their own (`mine`). */
+function DeleteAction({ c, mine, reload }: { c: Collateral; mine?: boolean; reload: () => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -206,14 +212,16 @@ function DeleteAction({ c, reload }: { c: Collateral; reload: () => void }) {
               <div>
                 <h3 style={{ margin: 0 }}>Delete “{c.title}”?</h3>
                 <p className="muted" style={{ margin: ".35rem 0 0", fontSize: ".85rem" }}>
-                  This removes it from the resources for everyone{hosted ? " and deletes the uploaded file" : ""}. This
-                  can’t be undone.
+                  This removes it from {mine ? "your resources" : "the resources for everyone"}
+                  {hosted ? " and deletes the uploaded file" : ""}. This can’t be undone.
                 </p>
               </div>
             </div>
-            <p className="muted" style={{ margin: ".9rem 0 0", fontSize: ".8rem" }}>
-              Prefer <strong>Hide</strong> if you only want to take it out of advisors’ view.
-            </p>
+            {!mine && (
+              <p className="muted" style={{ margin: ".9rem 0 0", fontSize: ".8rem" }}>
+                Prefer <strong>Hide</strong> if you only want to take it out of advisors’ view.
+              </p>
+            )}
             <ErrorBanner message={err} />
             <div className="confirm-actions">
               <button ref={cancelRef} className="btn secondary" onClick={close} disabled={busy}>
@@ -230,8 +238,9 @@ function DeleteAction({ c, reload }: { c: Collateral; reload: () => void }) {
   );
 }
 
-/** Managerial-only: reveal an inline uploader that adds a file or a video/link to the library. */
-function ManageActions({ products, reload }: { products: { id: string; label: string }[]; reload: () => void }) {
+/** Uploader that adds a file or a video/link. Managers publish to the whole org;
+ *  advisors (`personal`) add resources only they can see, which they may delete later. */
+function ManageActions({ products, reload, personal }: { products: { id: string; label: string }[]; reload: () => void; personal?: boolean }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"link" | "file">("link");
   const [form, setForm] = useState({ product: "", title: "", description: "", type: "video", external_url: "" });
@@ -275,10 +284,12 @@ function ManageActions({ products, reload }: { products: { id: string; label: st
     }
   }
 
+  const addLabel = personal ? "Add my resource" : "Add to resources";
+
   if (!open) {
     return (
       <button className="btn" onClick={() => setOpen(true)}>
-        <Icon name="plus" size={16} /> Add to resources
+        <Icon name="plus" size={16} /> {addLabel}
       </button>
     );
   }
@@ -287,11 +298,16 @@ function ManageActions({ products, reload }: { products: { id: string; label: st
     <div className="modal-overlay" onClick={() => setOpen(false)}>
       <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
         <div className="row" style={{ marginBottom: ".5rem" }}>
-          <h3 style={{ margin: 0 }}>Add to resources</h3>
+          <h3 style={{ margin: 0 }}>{addLabel}</h3>
           <button className="btn small ghost icon-only" aria-label="Close" onClick={() => setOpen(false)}>
             <Icon name="x" size={16} />
           </button>
         </div>
+        {personal && (
+          <p className="muted" style={{ margin: "0 0 .6rem", fontSize: ".8rem" }}>
+            Resources you add are yours — only you (and your manager) see them, and you can delete them any time.
+          </p>
+        )}
         <ErrorBanner message={err} />
         <div className="tabs">
           <button className={`tab ${mode === "link" ? "active" : ""}`} onClick={() => { setMode("link"); setForm({ ...form, type: "video" }); }}>
@@ -348,7 +364,7 @@ function ManageActions({ products, reload }: { products: { id: string; label: st
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
           <button className="btn full" disabled={busy}>
-            {busy ? "Saving…" : "Add to resources"}
+            {busy ? "Saving…" : addLabel}
           </button>
         </form>
       </div>

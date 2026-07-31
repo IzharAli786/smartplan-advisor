@@ -100,6 +100,9 @@ export const users = pgTable("users", {
   enrolledDate: date("enrolled_date"),
   referredBy: text("referred_by"),
   notes: text("notes"),
+  /** Advisor-written profile, visible to every signed-in user (Team page). */
+  bio: text("bio"),
+  capabilities: text("capabilities"),
   passwordHash: text("password_hash"),
   sessionVersion: integer("session_version").notNull().default(0),
   statesCovered: text("states_covered").array().notNull().default([]),
@@ -298,7 +301,19 @@ export const collateral = pgTable("collateral", {
   thumbnailUrl: text("thumbnail_url"),
   sortOrder: integer("sort_order").notNull().default(0),
   uploadedBy: uuid("uploaded_by"),
+  /** NULL = org library published by a super admin. Set = that advisor's personal resource. */
+  ownerId: uuid("owner_id"),
   active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Feedback a super admin writes FOR an advisor (visible to that advisor only). */
+export const advisorFeedback = pgTable("advisor_feedback", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id").notNull(),
+  advisorId: uuid("advisor_id").notNull(),
+  authorId: uuid("author_id"),
+  body: text("body").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
