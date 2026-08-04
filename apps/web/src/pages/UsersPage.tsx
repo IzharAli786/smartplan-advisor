@@ -19,6 +19,7 @@ export default function UsersPage({
   const { data, loading, error, reload } = useApi<{ users: CurrentUser[] }>("/api/users");
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [createForm, setCreateForm] = useState({
@@ -132,6 +133,14 @@ export default function UsersPage({
               onClose={() => setEditingId(null)}
               onSaved={() => { setEditingId(null); reload(); }}
             />
+          ) : deletingId === u.id ? (
+            <DeleteAdvisorCard
+              key={u.id}
+              user={u}
+              candidates={(data?.users ?? []).filter((c) => c.role === "advisor" && c.active && c.id !== u.id)}
+              onClose={() => setDeletingId(null)}
+              onDeleted={() => { setDeletingId(null); reload(); }}
+            />
           ) : (
             <Card key={u.id}>
               <div className="row">
@@ -169,9 +178,15 @@ export default function UsersPage({
               </div>
               {me && canEditUser(me.role, u.role) && (
                 <div className="row" style={{ gap: ".5rem", marginTop: ".75rem", justifyContent: "flex-start" }}>
-                  <button className="btn small secondary" onClick={() => { setEditingId(u.id); setShowCreate(false); }}>
+                  <button className="btn small secondary" onClick={() => { setEditingId(u.id); setDeletingId(null); setShowCreate(false); }}>
                     <Icon name="edit" size={15} /> Edit
                   </button>
+                  {/* Delete only ever offered for FORMER advisors — deactivate first (Edit → Status). */}
+                  {isSuperAdmin && u.role === "advisor" && !u.active && (
+                    <button className="btn small danger" onClick={() => { setDeletingId(u.id); setEditingId(null); setShowCreate(false); }}>
+                      <Icon name="trash" size={15} /> Delete
+                    </button>
+                  )}
                 </div>
               )}
             </Card>
@@ -179,6 +194,90 @@ export default function UsersPage({
         )
       )}
     </div>
+  );
+}
+
+/** Permanent removal of a FORMER advisor (super admin only). The server enforces the
+ * real rules — deactivated target, no pipeline/sales history, leads reassigned —
+ * this card mirrors them: it shows the lead count up front and refuses to submit
+ * until a takeover advisor is chosen whenever leads exist. */
+function DeleteAdvisorCard({
+  user,
+  candidates,
+  onClose,
+  onDeleted,
+}: {
+  user: CurrentUser;
+  candidates: CurrentUser[];
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const { data, loading, error } = useApi<{ leads: { id: string }[] }>(`/api/leads?advisorId=${user.id}`);
+  const [reassignTo, setReassignTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const leadCount = data?.leads.length ?? 0;
+  const needsReassign = leadCount > 0;
+  const blocked = needsReassign && candidates.length === 0;
+
+  async function confirmDelete() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.delete(`/api/users/${user.id}`, needsReassign ? { reassign_to: reassignTo } : undefined);
+      onDeleted();
+    } catch (e2) {
+      setErr(e2 instanceof ApiError ? e2.message : "Could not delete the advisor");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <div className="row">
+        <h3>Delete {user.fullName}</h3>
+        <button className="btn small ghost" onClick={onClose}><Icon name="x" size={15} /> Close</button>
+      </div>
+      <ErrorBanner message={err ?? error} />
+      {loading ? (
+        <Spinner />
+      ) : (
+        <>
+          <p className="muted" style={{ fontSize: ".85rem" }}>
+            This permanently removes the advisor's account and profile. It can't be undone.
+            Advisors with pipeline accounts or recorded sales can't be deleted — reassign
+            their pipeline first, or keep them deactivated.
+          </p>
+          {needsReassign && (
+            <div className="field">
+              <label>Reassign their {leadCount} lead{leadCount === 1 ? "" : "s"} to</label>
+              <select value={reassignTo} onChange={(e) => setReassignTo(e.target.value)}>
+                <option value="">Choose an active Smart Advisor…</option>
+                {candidates.map((c) => (
+                  <option key={c.id} value={c.id}>{c.fullName}</option>
+                ))}
+              </select>
+              {blocked && (
+                <div className="field-hint" style={{ color: "var(--color-danger)" }}>
+                  No active Smart Advisors available to take over the leads.
+                </div>
+              )}
+            </div>
+          )}
+          <div className="row" style={{ gap: ".5rem", justifyContent: "flex-start" }}>
+            <button
+              className="btn danger"
+              disabled={busy || blocked || (needsReassign && !reassignTo)}
+              onClick={confirmDelete}
+            >
+              <Icon name="trash" size={15} /> {busy ? "Deleting…" : "Permanently delete"}
+            </button>
+            <button className="btn secondary" disabled={busy} onClick={onClose}>Cancel</button>
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 

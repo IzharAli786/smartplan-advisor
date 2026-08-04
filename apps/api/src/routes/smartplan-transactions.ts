@@ -1,12 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { and, asc, desc, eq, gte, ilike, lte, ne, or, sql as dsql } from "drizzle-orm";
-import { db, smartplanTransactions, opportunities, organizations, users } from "@smart-crm/db";
+import { db, smartplanTransactions, opportunities, organizations, statusStages, users } from "@smart-crm/db";
 import {
   smartPlanTxnSchema,
   smartPlanTxnIngestSchema,
   smartPlanActivationSchema,
   smartPlanAdvisorSyncSchema,
   smartPlanSubscriptionStatusSchema,
+  smartPlanTrialUpdateSchema,
   isManagerial,
   normalizeCompanyName,
   normalizeCompanyKey,
@@ -60,6 +61,29 @@ async function findAccountByCompany(orgId: string, companyName: string) {
     .orderBy(dsql`CASE WHEN ${opportunities.source} = 'referral' THEN 0 ELSE 1 END`, desc(opportunities.updatedAt))
     .limit(1);
   return { key, row: row ?? null };
+}
+
+/**
+ * The customer started (or is on) a SmartPlan trial → surface the opportunity
+ * in the "Trials" stage. FORWARD-ONLY: an opportunity already at Trials or
+ * beyond (Proposal, Subscribed, Lost) is never demoted — a trial extension
+ * arriving mid-negotiation must not yank the card backwards. Returns the new
+ * stage key when a move happened, else null. No-op for orgs whose admin
+ * deleted/deactivated the Trials stage.
+ */
+async function maybeAdvanceToTrials(orgId: string, oppId: string, currentStatusKey: string): Promise<string | null> {
+  const rows = await db.select().from(statusStages).where(eq(statusStages.orgId, orgId));
+  const trials = rows.find((r) => r.key === "trials" && r.active);
+  if (!trials) return null;
+  const current = rows.find((r) => r.key === currentStatusKey);
+  // Unknown current stage = don't guess; terminal/conversion = never move.
+  if (!current || current.isTerminal || current.isConversion) return null;
+  if (current.sortOrder >= trials.sortOrder) return null;
+  await db
+    .update(opportunities)
+    .set({ status: trials.key, statusChangedAt: new Date(), updatedAt: new Date() })
+    .where(eq(opportunities.id, oppId));
+  return trials.key;
 }
 
 export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
@@ -142,11 +166,37 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
     // advisor so a re-activation after a takeover dedupes against the transferred account
     // instead of minting a second one under the original referrer.
     const { key: companyNameNormalized, row: existing } = await findAccountByCompany(advisor.orgId, input.company_name);
-    if (existing) return { opportunity_id: existing.id, deduped: true };
+    if (existing) {
+      // Re-activation of a known account. When SmartPlan reports a trial
+      // window, refresh the stored dates and (forward-only) surface the card
+      // in the Trials stage — the advisor's own typed opportunity for this
+      // company gets trial visibility too, not just referral-created ones.
+      if (input.trial_started_at && input.trial_ends_at) {
+        await db
+          .update(opportunities)
+          .set({ trialStartedAt: input.trial_started_at, trialEndsAt: input.trial_ends_at, updatedAt: new Date() })
+          .where(eq(opportunities.id, existing.id));
+        const moved = await maybeAdvanceToTrials(advisor.orgId, existing.id, existing.status);
+        if (moved) {
+          await logActivity({
+            opportunityId: existing.id,
+            advisorId: existing.advisorId,
+            type: "system",
+            subject: "Started SmartPlan 14-day trial",
+          });
+        }
+      }
+      return { opportunity_id: existing.id, deduped: true };
+    }
 
     const now = new Date();
-    const initialStage = await getInitialStageKey(advisor.orgId);
-    const stage = await getStage(advisor.orgId, initialStage);
+    // A referred signup that comes with a trial window starts life in the
+    // Trials stage (that IS its pipeline position); anything else takes the
+    // org's normal initial stage.
+    const onTrial = !!(input.trial_started_at && input.trial_ends_at);
+    const trialsStage = onTrial ? await getStage(advisor.orgId, "trials") : null;
+    const initialStage = trialsStage ? trialsStage.key : await getInitialStageKey(advisor.orgId);
+    const stage = trialsStage ?? (await getStage(advisor.orgId, initialStage));
     const { nextStep, nextStepDue } = computeNextStep({
       stageKey: initialStage,
       isTerminal: stage?.isTerminal ?? false,
@@ -182,6 +232,8 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
         nextStep,
         nextStepDue,
         source: "referral",
+        trialStartedAt: input.trial_started_at ?? null,
+        trialEndsAt: input.trial_ends_at ?? null,
         lastActivityAt: now,
       })
       .onConflictDoNothing()
@@ -199,10 +251,40 @@ export async function registerSmartPlanTxnRoutes(app: FastifyInstance) {
       opportunityId: opp.id,
       advisorId: advisor.id,
       type: "system",
-      subject: "SmartPlan referral activated",
+      subject: onTrial ? "SmartPlan referral activated — started 14-day trial" : "SmartPlan referral activated",
     });
 
     return { opportunity_id: opp.id, deduped: false };
+  });
+
+  // Trial-window update: SmartPlan posts here when an eco-admin EXTENDS a
+  // referred customer's trial after activation. Refreshes the stored dates so
+  // the advisor's card shows the real end date, and nudges a pre-Trials card
+  // into the Trials stage (forward-only, same rule as /activation). A company
+  // we can't match is not an error — activation may simply not have arrived.
+  app.post("/trial-update", async (req) => {
+    requireIngestSecret(req.headers as Record<string, unknown>);
+    const input = parse(smartPlanTrialUpdateSchema, req.body);
+
+    const [advisor] = await db.select({ orgId: users.orgId }).from(users).where(eq(users.id, input.advisor_id)).limit(1);
+    if (!advisor) throw notFound("Advisor not found");
+
+    const { row } = await findAccountByCompany(advisor.orgId, input.company_name);
+    if (!row) return { updated: false, matched: false };
+
+    await db
+      .update(opportunities)
+      .set({ trialStartedAt: input.trial_started_at, trialEndsAt: input.trial_ends_at, updatedAt: new Date() })
+      .where(eq(opportunities.id, row.id));
+    await maybeAdvanceToTrials(advisor.orgId, row.id, row.status);
+    await logActivity({
+      opportunityId: row.id,
+      advisorId: row.advisorId,
+      type: "system",
+      subject: `SmartPlan trial extended — now ends ${input.trial_ends_at.toISOString().slice(0, 10)}`,
+    });
+
+    return { updated: true, matched: true };
   });
 
   // Advisor sync: SmartPlan's Eco Admin posts here when a Smart Advisor

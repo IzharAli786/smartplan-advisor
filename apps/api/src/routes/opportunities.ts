@@ -26,6 +26,19 @@ import { logActivity } from "../services/activity.js";
 import { transcribeToDraft, isVoiceConfigured } from "../services/voice.js";
 import { priceLines, summarizeProducts, replaceProductLines, getProductLines } from "../services/opportunity-products.js";
 import { listCommunications } from "../services/communications.js";
+import { smartplanConfigured, smartplanRequest } from "../services/smartplan.js";
+
+/** One referred customer's live usage as SmartPlan reports it. */
+interface SmartPlanUsageRow {
+  company_name: string;
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
+  trial_active: boolean;
+  trial_days_remaining: number | null;
+  subscribed: boolean;
+  equipment_count: number;
+  ai_scan_count: number;
+}
 
 function mapOpp(row: typeof opportunities.$inferSelect) {
   return {
@@ -134,6 +147,31 @@ export async function registerOpportunityRoutes(app: FastifyInstance) {
       products: productRows.map((p) => p.label),
     });
     return result;
+  });
+
+  // GET /api/opportunities/trial-usage — live SmartPlan usage for referred
+  // customers (equipment captured + AI nameplate scans + trial window),
+  // pulled fresh so the pipeline never shows a stale count. Advisors get
+  // their own referrals (advisor_id = their Advise UUID); managerial roles
+  // get every referred customer. Soft-fails to an empty list — the pipeline
+  // must render even when SmartPlan is down or the integration is unset.
+  app.get("/trial-usage", async (req) => {
+    const user = requireUser(req);
+    if (!smartplanConfigured()) return { configured: false, rows: [] };
+    const qs = isManagerial(user.role) ? "" : `?advisor_id=${encodeURIComponent(user.id)}`;
+    try {
+      const data = await smartplanRequest<{ rows: SmartPlanUsageRow[] }>("GET", `/api/advise/referred-usage${qs}`);
+      return {
+        configured: true,
+        // company_name_normalized is computed HERE with the same helper the
+        // opportunity rows store, so the client matches by key instead of
+        // re-implementing the normalization.
+        rows: (data.rows ?? []).map((r) => ({ ...r, company_name_normalized: normalizeCompanyName(r.company_name) })),
+      };
+    } catch (err) {
+      req.log.warn({ err }, "SmartPlan referred-usage pull failed");
+      return { configured: true, rows: [] };
+    }
   });
 
   // GET /api/opportunities — advisors see only their own (§11.2); managerial see all + filters.

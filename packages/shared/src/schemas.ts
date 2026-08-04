@@ -66,6 +66,13 @@ export const updateUserSchema = createUserSchema.partial().omit({ role: true }).
 });
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 
+/** Body for DELETE /api/users/:id — where the former advisor's leads go.
+ *  Required whenever the advisor still holds leads; ignored otherwise. */
+export const deleteUserSchema = z.object({
+  reassign_to: z.string().uuid().optional(),
+});
+export type DeleteUserInput = z.infer<typeof deleteUserSchema>;
+
 /** Default advisor commission rate when none is specified (§10). */
 export const DEFAULT_COMMISSION_RATE = 33;
 
@@ -126,8 +133,27 @@ export const smartPlanActivationSchema = z.object({
   contact_cell: z.string().trim().max(40).optional().or(z.literal("").transform(() => undefined)),
   product: z.string().trim().max(160).optional().or(z.literal("").transform(() => undefined)),
   opportunity_value: z.coerce.number().min(0).max(1_000_000_000).optional(),
+  // The referred customer's SmartPlan 14-day trial window. trial_ends_at is
+  // the EFFECTIVE end (includes eco-admin extensions). When present, the
+  // opportunity is placed in / moved forward to the "Trials" stage.
+  trial_started_at: z.coerce.date().optional(),
+  trial_ends_at: z.coerce.date().optional(),
 });
 export type SmartPlanActivationInput = z.infer<typeof smartPlanActivationSchema>;
+
+/**
+ * Trial-window update SmartPlan posts to /trial-update when an eco-admin
+ * extends a referred customer's trial AFTER activation. Matched by advisor +
+ * normalized company name, like /activation. Only refreshes the stored dates
+ * (and nudges a pre-Trials opportunity into the Trials stage) — never demotes.
+ */
+export const smartPlanTrialUpdateSchema = z.object({
+  advisor_id: z.string().uuid(),
+  company_name: z.string().trim().min(1).max(200),
+  trial_started_at: z.coerce.date(),
+  trial_ends_at: z.coerce.date(),
+});
+export type SmartPlanTrialUpdateInput = z.infer<typeof smartPlanTrialUpdateSchema>;
 
 /**
  * Subscription lifecycle signal SmartPlan posts when a referred customer's

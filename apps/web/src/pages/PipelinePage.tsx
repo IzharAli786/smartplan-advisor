@@ -7,7 +7,7 @@ import { Icon } from "../components/Icon.tsx";
 import { money } from "../lib/format.ts";
 import { stageTone } from "../lib/stage.ts";
 import { useAuth } from "../auth/AuthContext.tsx";
-import type { Opportunity, StatusStage } from "../api/types.ts";
+import type { Opportunity, StatusStage, TrialUsageRow } from "../api/types.ts";
 
 /** Rough completion % from stage order, so cards mirror the reference "Recent Proposals". */
 function completion(status: string, stages: StatusStage[]): number {
@@ -20,6 +20,19 @@ function completion(status: string, stages: StatusStage[]): number {
   return Math.round((idx / (active.length - 1)) * 100);
 }
 
+/** Trial state derived LIVE from the stored end date — the badge flips to
+ *  "ended" the moment the date passes, with no job on either side. */
+function trialBadge(o: Opportunity): { label: string; kind: string } | null {
+  if (!o.trialEndsAt) return null;
+  const end = new Date(o.trialEndsAt);
+  const msLeft = end.getTime() - Date.now();
+  if (msLeft > 0) {
+    const days = Math.ceil(msLeft / 86_400_000);
+    return { label: `Trial · ${days}d left`, kind: "tone-amber" };
+  }
+  return { label: `Trial ended ${end.toLocaleDateString()}`, kind: "overdue" };
+}
+
 export default function PipelinePage() {
   const { isManager } = useAuth();
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -28,6 +41,10 @@ export default function PipelinePage() {
   const [sortBy, setSortBy] = useState<"newest" | "company" | "state">("newest");
   const { data: stagesData } = useStages();
   const { data, loading, error } = useApi<{ opportunities: Opportunity[] }>("/api/opportunities");
+  // Live SmartPlan usage (equipment captured + AI scans) for referred
+  // customers — soft data: the pipeline renders fine without it.
+  const { data: usageData } = useApi<{ rows: TrialUsageRow[] }>("/api/opportunities/trial-usage");
+  const usageByCompany = new Map((usageData?.rows ?? []).map((r) => [r.company_name_normalized, r]));
   const labels = stageLabelMap(stagesData?.stages);
   const stages = (stagesData?.stages ?? []).filter((s) => s.active);
   const stageMap = new Map((stagesData?.stages ?? []).map((s) => [s.key, s]));
@@ -145,6 +162,8 @@ export default function PipelinePage() {
       ) : (
         shown.map((o) => {
           const c = completion(o.status, stagesData?.stages ?? []);
+          const trial = trialBadge(o);
+          const usage = usageByCompany.get(o.companyNameNormalized);
           return (
             <Link key={o.id} to={`/opportunity/${o.id}`} style={{ color: "inherit" }}>
               <Card onClick={() => {}}>
@@ -158,9 +177,17 @@ export default function PipelinePage() {
                       <div className="muted" style={{ fontSize: ".82rem" }}>
                         {o.product ?? "—"} · {o.state}
                       </div>
+                      {usage && (
+                        <div className="muted" style={{ fontSize: ".78rem" }}>
+                          {usage.equipment_count} assets captured · {usage.ai_scan_count} AI scans
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <StatusBadge label={labels[o.status] ?? prettyKey(o.status)} kind={stageTone(stageMap.get(o.status))} />
+                  <span className="row" style={{ gap: ".4rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
+                    {trial && <StatusBadge label={trial.label} kind={trial.kind} />}
+                    <StatusBadge label={labels[o.status] ?? prettyKey(o.status)} kind={stageTone(stageMap.get(o.status))} />
+                  </span>
                 </div>
                 <div style={{ marginTop: ".75rem" }}>
                   <div className="row">

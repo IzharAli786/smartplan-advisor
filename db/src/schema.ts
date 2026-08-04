@@ -268,6 +268,12 @@ export const opportunities = pgTable("opportunities", {
   notes: text("notes"),
   customFields: jsonb("custom_fields").notNull().default({}),
   source: opportunitySource("source").notNull().default("typed"),
+  // SmartPlan 14-day trial window for referred customers, stamped by the
+  // activation/trial-update ingest pushes. trial_ends_at is the EFFECTIVE end
+  // (includes SmartPlan eco-admin extensions); the UI derives "trial active /
+  // ended" from it live — nothing schedules a transition.
+  trialStartedAt: timestamp("trial_started_at", { withTimezone: true }),
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
   apolloOrgId: text("apollo_org_id"),
   enrichedAt: timestamp("enriched_at", { withTimezone: true }),
   enrichmentVerified: boolean("enrichment_verified").notNull().default(false),

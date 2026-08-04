@@ -87,8 +87,27 @@ export interface Opportunity {
   reviewNotes: string | null;
   notes: string | null;
   source: string;
+  // Matching key for SmartPlan trial-usage rows (server-computed).
+  companyNameNormalized: string;
+  // SmartPlan 14-day trial window for referred customers (effective end —
+  // includes eco-admin extensions). Null for non-referred opportunities.
+  trialStartedAt: string | null;
+  trialEndsAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Live per-customer usage from GET /api/opportunities/trial-usage. */
+export interface TrialUsageRow {
+  company_name: string;
+  company_name_normalized: string;
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
+  trial_active: boolean;
+  trial_days_remaining: number | null;
+  subscribed: boolean;
+  equipment_count: number;
+  ai_scan_count: number;
 }
 
 export interface OpportunityProductLine {

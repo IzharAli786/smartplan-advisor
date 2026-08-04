@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, sql as dsql } from "drizzle-orm";
-import { db, users } from "@smart-crm/db";
-import { createUserSchema, updateUserSchema, canEditUser, isManagerial, DEFAULT_COMMISSION_RATE, type Role } from "@smart-crm/shared";
+import { db, users, leads, opportunities, quotes, transactions, smartplanTransactions } from "@smart-crm/db";
+import { createUserSchema, updateUserSchema, deleteUserSchema, canEditUser, isManagerial, DEFAULT_COMMISSION_RATE, type Role } from "@smart-crm/shared";
 import { parse } from "../lib/validate.js";
 import { authenticate } from "../auth/context.js";
 import { requireManagerial, requireSuperAdmin, requireUser } from "../auth/guards.js";
-import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
+import { badRequest, conflict, forbidden, notFound, unprocessable } from "../lib/errors.js";
 import { serializeUser, type UserRow } from "../lib/serialize.js";
 import { storage, newStorageKey } from "../lib/storage.js";
 import { generateToken, hashPassword } from "../auth/password.js";
@@ -238,6 +238,95 @@ export async function registerUserRoutes(app: FastifyInstance) {
     await db.insert(userTokens).values({ userId: target.id, tokenHash: hash, purpose: "reset", expiresAt: expires });
     await mailer.sendReset(target.email, `${env.webOrigins[0]}/set-password?token=${raw}`);
     return { ok: true };
+  });
+
+  // DELETE /api/users/:id — permanently remove a FORMER advisor. SUPER ADMIN ONLY.
+  // Gates, in order: the target must be an advisor and already deactivated (that is
+  // what "no longer a Smart Advisor" means in the roster); anything that must
+  // outlive them keeps the row alive — pipeline accounts, quotes and commission /
+  // SmartPlan revenue records block the delete outright (reassign the pipeline
+  // first; advisors with sales history stay deactivated forever). Leads they still
+  // hold are moved to body.reassign_to (an ACTIVE advisor) in the same transaction.
+  app.delete("/:id", async (req) => {
+    const viewer = requireSuperAdmin(req);
+    const { id } = req.params as { id: string };
+    const input = parse(deleteUserSchema, req.body ?? {});
+
+    const [target] = await db
+      .select({ id: users.id, role: users.role, active: users.active, avatarKey: users.avatarKey })
+      .from(users)
+      .where(and(eq(users.id, id), eq(users.orgId, viewer.orgId)))
+      .limit(1);
+    if (!target) throw notFound("User not found");
+    if (target.role !== "advisor") throw forbidden("Only advisors can be deleted");
+    if (target.active) {
+      throw unprocessable("Deactivate this advisor first — only former Smart Advisors can be deleted", "still_active");
+    }
+
+    const countRows = { n: dsql<number>`count(*)::int` };
+    const first = (rows: { n: number }[]) => rows[0]?.n ?? 0;
+    const [inPipeline, quoteCount, saleCount, revenueCount, leadCount] = await Promise.all([
+      db.select(countRows).from(opportunities).where(eq(opportunities.advisorId, id)).then(first),
+      db.select(countRows).from(quotes).where(eq(quotes.advisorId, id)).then(first),
+      db.select(countRows).from(transactions).where(eq(transactions.advisorId, id)).then(first),
+      db.select(countRows).from(smartplanTransactions).where(eq(smartplanTransactions.advisorId, id)).then(first),
+      db.select(countRows).from(leads).where(eq(leads.assignedAdvisorId, id)).then(first),
+    ]);
+
+    const blockers = [
+      inPipeline ? `${inPipeline} pipeline account(s)` : null,
+      quoteCount ? `${quoteCount} quote(s)` : null,
+      saleCount ? `${saleCount} commission record(s)` : null,
+      revenueCount ? `${revenueCount} SmartPlan revenue record(s)` : null,
+    ].filter(Boolean);
+    if (blockers.length > 0) {
+      throw conflict(
+        `This advisor still has ${blockers.join(", ")}. Reassign their pipeline first — advisors with sales history should stay deactivated instead of being deleted.`,
+        "has_records",
+      );
+    }
+
+    let reassignTo: string | null = null;
+    if (leadCount > 0) {
+      if (!input.reassign_to) {
+        throw unprocessable(
+          `This advisor still holds ${leadCount} lead(s) — choose an active Smart Advisor to take them over`,
+          "reassign_required",
+        );
+      }
+      if (input.reassign_to === id) throw badRequest("Leads can't go to the advisor being deleted", "bad_advisor");
+      const [ok] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, input.reassign_to), eq(users.orgId, viewer.orgId), eq(users.role, "advisor"), eq(users.active, true)))
+        .limit(1);
+      if (!ok) throw badRequest("Choose an active Smart Advisor to take over the leads", "bad_advisor");
+      reassignTo = input.reassign_to;
+    }
+
+    await db.transaction(async (tx) => {
+      if (reassignTo) {
+        await tx
+          .update(leads)
+          .set({ assignedAdvisorId: reassignTo, updatedAt: new Date() })
+          .where(and(eq(leads.assignedAdvisorId, id), eq(leads.orgId, viewer.orgId)));
+      } else {
+        // leads have no FK to users — re-check inside the transaction so a lead
+        // assigned between the count above and here can't be orphaned silently.
+        const still = first(await tx.select(countRows).from(leads).where(eq(leads.assignedAdvisorId, id)));
+        if (still > 0) {
+          throw unprocessable(
+            `This advisor just received ${still} lead(s) — choose an active Smart Advisor to take them over`,
+            "reassign_required",
+          );
+        }
+      }
+      await tx.delete(users).where(and(eq(users.id, id), eq(users.orgId, viewer.orgId)));
+    });
+
+    // Row is gone; the avatar blob is app-managed storage, so clean it up too.
+    if (target.avatarKey) await storage.delete(target.avatarKey);
+    return { ok: true, reassignedLeads: leadCount };
   });
 
   // POST /api/users/:id/resend-invite — super admin only.

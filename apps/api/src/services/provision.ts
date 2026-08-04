@@ -5,9 +5,12 @@ const DEFAULT_STAGES = [
   { key: "new", label: "New", sortOrder: 1, isConversion: false, isTerminal: false, winProbability: 10 },
   { key: "contacted", label: "Contacted", sortOrder: 2, isConversion: false, isTerminal: false, winProbability: 25 },
   { key: "demo_scheduled", label: "Demo Scheduled", sortOrder: 3, isConversion: false, isTerminal: false, winProbability: 50 },
-  { key: "proposal", label: "Proposal", sortOrder: 4, isConversion: false, isTerminal: false, winProbability: 70 },
-  { key: "won", label: "Subscribed", sortOrder: 5, isConversion: true, isTerminal: true, winProbability: 100 },
-  { key: "lost", label: "Lost", sortOrder: 6, isConversion: false, isTerminal: true, winProbability: 0 },
+  // Referred clients on their SmartPlan 14-day trial land here automatically
+  // (the activation push carries trial dates). Keep in sync with migration 0033.
+  { key: "trials", label: "Trials", sortOrder: 4, isConversion: false, isTerminal: false, winProbability: 60 },
+  { key: "proposal", label: "Proposal", sortOrder: 5, isConversion: false, isTerminal: false, winProbability: 70 },
+  { key: "won", label: "Subscribed", sortOrder: 6, isConversion: true, isTerminal: true, winProbability: 100 },
+  { key: "lost", label: "Lost", sortOrder: 7, isConversion: false, isTerminal: true, winProbability: 0 },
 ];
 
 const DEFAULT_PRODUCTS = ["Smart Plan Survey", "Smart Plan Propose", "Smart Plan Quote", "Smart Plan Perform", "Equipment Only Survey", "Equipment Only Perform"];

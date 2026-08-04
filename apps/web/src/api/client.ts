@@ -40,6 +40,6 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => fetch(path, jsonInit("PATCH", body)).then(handle) as Promise<T>,
   upload: <T>(path: string, form: FormData) =>
     fetch(path, { method: "POST", credentials: "include", body: form }).then(handle) as Promise<T>,
-  delete: <T>(path: string) =>
-    fetch(path, { method: "DELETE", credentials: "include" }).then(handle) as Promise<T>,
+  delete: <T>(path: string, body?: unknown) =>
+    fetch(path, jsonInit("DELETE", body)).then(handle) as Promise<T>,
 };

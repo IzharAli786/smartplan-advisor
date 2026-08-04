@@ -26,9 +26,11 @@ const DEFAULT_STAGES = [
   { key: "new", label: "New", sortOrder: 1, isConversion: false, isTerminal: false },
   { key: "contacted", label: "Contacted", sortOrder: 2, isConversion: false, isTerminal: false },
   { key: "demo_scheduled", label: "Demo Scheduled", sortOrder: 3, isConversion: false, isTerminal: false },
-  { key: "proposal", label: "Proposal", sortOrder: 4, isConversion: false, isTerminal: false },
-  { key: "won", label: "Subscribed", sortOrder: 5, isConversion: true, isTerminal: true },
-  { key: "lost", label: "Lost", sortOrder: 6, isConversion: false, isTerminal: true },
+  // Keep in sync with provision.ts DEFAULT_STAGES + migration 0033.
+  { key: "trials", label: "Trials", sortOrder: 4, isConversion: false, isTerminal: false },
+  { key: "proposal", label: "Proposal", sortOrder: 5, isConversion: false, isTerminal: false },
+  { key: "won", label: "Subscribed", sortOrder: 6, isConversion: true, isTerminal: true },
+  { key: "lost", label: "Lost", sortOrder: 7, isConversion: false, isTerminal: true },
 ];
 
 const DEFAULT_PRODUCTS = [
