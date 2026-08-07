@@ -257,7 +257,7 @@ export default function AdvisorDetailPage() {
           <Card>
             <h3>Bio &amp; capabilities</h3>
             <p className="muted" style={{ fontSize: ".78rem", marginBottom: ".6rem" }}>
-              Written by the advisor; visible to the whole team on the Team page.
+              Written by the advisor; visible to the whole team on the Advisor Network page.
             </p>
             {advisor.bio ? <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>{advisor.bio}</p> : <p className="muted" style={{ margin: 0 }}>No bio yet.</p>}
             {advisor.capabilities && (

@@ -23,7 +23,7 @@ export default function TeamPage() {
   return (
     <div>
       <PageHead
-        title="Team"
+        title="Advisor Network"
         subtitle="Who's who — every Smart Advisor's bio and unique capabilities"
       />
       <ErrorBanner message={error} />
@@ -114,7 +114,7 @@ function MyProfileEditor({ me, reload }: { me: TeamMember; reload: () => void })
     <Card>
       <h3>My profile</h3>
       <p className="muted" style={{ fontSize: ".78rem", marginBottom: ".6rem" }}>
-        Your bio and unique capabilities are visible to every Smart Advisor on the Team page.
+        Your bio and unique capabilities are visible to every Smart Advisor on the Advisor Network page.
       </p>
       <ErrorBanner message={err} />
       <div className="field">
