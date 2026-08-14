@@ -36,6 +36,9 @@ export const env = {
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   openaiTranscribeModel: process.env.OPENAI_TRANSCRIBE_MODEL ?? "whisper-1",
   openaiExtractModel: process.env.OPENAI_EXTRACT_MODEL ?? "gpt-4o-mini",
+  // Must be a vision-capable model (lead photo scan). Separate from the extract
+  // model so a custom text-only OPENAI_EXTRACT_MODEL never breaks scanning.
+  openaiVisionModel: process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini",
   isProd: process.env.NODE_ENV === "production",
 };
 

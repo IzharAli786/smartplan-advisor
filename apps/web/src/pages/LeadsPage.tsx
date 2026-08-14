@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useApi } from "../hooks/useApi.ts";
 import { useProducts } from "../hooks/useSettings.ts";
@@ -15,8 +15,19 @@ const STATUS_KIND: Record<Lead["status"], string> = { new: "lead-new", claimed: 
 // "converted" is never a visible lead state.
 const WORKFLOW_STATUSES = LEAD_STATUSES.filter((s) => s.value !== "converted");
 
+// All fields on the Add/Edit lead form, in render order — also drives the create payload.
+const LEAD_FORM_KEYS = [
+  "company_name", "first_name", "last_name", "title", "email", "department",
+  "linkedin_url", "website", "company_address", "company_city", "company_state",
+  "corporate_phone", "company_phone", "num_employees", "annual_revenue",
+  "subsidiary_of", "technologies", "keywords", "notes",
+] as const;
+const emptyLeadForm = () => Object.fromEntries(LEAD_FORM_KEYS.map((k) => [k, ""])) as Record<string, string>;
+// Mirror of SCAN_IMAGE_TYPES in POST /api/leads/scan — the API is the authority.
+const SCAN_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
 export default function LeadsPage() {
-  const { isManager } = useAuth();
+  const { user, isManager } = useAuth();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
 
@@ -85,6 +96,25 @@ export default function LeadsPage() {
   // Edit modal
   const [editLead, setEditLead] = useState<Lead | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
+
+  // Add-lead modal — typed entry + AI photo scan.
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<Record<string, string>>(emptyLeadForm);
+  const [createAdvisorId, setCreateAdvisorId] = useState("");
+  const [aiFields, setAiFields] = useState<Set<string>>(new Set());
+  const [scanEnabled, setScanEnabled] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanErr, setScanErr] = useState<string | null>(null);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createErr, setCreateErr] = useState<string | null>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    api
+      .get<{ enabled: boolean }>("/api/leads/scan-status")
+      .then((d) => setScanEnabled(d.enabled))
+      .catch(() => setScanEnabled(false));
+  }, []);
 
   function setFilter(key: string, value: string) {
     const next = new URLSearchParams(params);
@@ -176,6 +206,95 @@ export default function LeadsPage() {
   const editEmployeesInvalid =
     editLead != null && !!form.num_employees?.trim() && !/^\d+$/.test(form.num_employees.trim());
 
+  // Same mirrors for the Add-lead modal (backend: leadCreateSchema).
+  const createCompanyMissing = createOpen && !createForm.company_name?.trim();
+  const createEmailInvalid =
+    createOpen && !!createForm.email?.trim() && !/^\S+@\S+\.\S+$/.test(createForm.email.trim());
+  const createEmployeesInvalid =
+    createOpen && !!createForm.num_employees?.trim() && !/^\d+$/.test(createForm.num_employees.trim());
+
+  function openCreate() {
+    setCreateForm(emptyLeadForm());
+    setAiFields(new Set());
+    setCreateAdvisorId(user?.id ?? "");
+    setCreateErr(null);
+    setScanErr(null);
+    setCreateOpen(true);
+  }
+
+  /** Set one Add-lead field; a manual edit clears that field's AI badge. */
+  function setCreateField(name: string, value: string) {
+    setCreateForm((f) => ({ ...f, [name]: value }));
+    setAiFields((s) => {
+      if (!s.has(name)) return s;
+      const next = new Set(s);
+      next.delete(name);
+      return next;
+    });
+  }
+
+  async function sendImage(file: File) {
+    // Mirror of the checks in POST /api/leads/scan — the API is the authority.
+    if (!SCAN_TYPES.includes(file.type)) {
+      setScanErr("Use a PNG, JPG, WEBP or GIF. iPhone HEIC photos aren't supported — take a screenshot of the photo instead.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setScanErr("Image must be under 10MB");
+      return;
+    }
+    setScanning(true);
+    setScanErr(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file, file.name || "scan.png");
+      const { draft } = await api.upload<{ draft: Record<string, unknown> }>("/api/leads/scan", fd);
+      const entries = Object.entries(draft).filter(
+        ([k, v]) => v !== undefined && v !== null && v !== "" && (LEAD_FORM_KEYS as readonly string[]).includes(k),
+      );
+      setCreateForm((f) => {
+        const next = { ...f };
+        for (const [k, v] of entries) next[k] = String(v);
+        return next;
+      });
+      setAiFields(new Set(entries.map(([k]) => k)));
+      if (entries.length === 0) {
+        setScanErr("Couldn't read any lead details from that image — fill the form manually.");
+      }
+    } catch (e) {
+      setScanErr(e instanceof ApiError ? e.message : "Couldn't read the image");
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  async function doCreate() {
+    if (createCompanyMissing || createEmailInvalid || createEmployeesInvalid) return;
+    setCreateBusy(true);
+    setCreateErr(null);
+    try {
+      const payload: Record<string, unknown> = {
+        company_name: createForm.company_name!.trim(),
+        source: aiFields.size > 0 ? "screenshot" : "manual",
+      };
+      for (const key of LEAD_FORM_KEYS) {
+        if (key === "company_name") continue;
+        const v = createForm[key]?.trim();
+        if (v) payload[key] = v;
+      }
+      if (isManager && createAdvisorId) payload.advisor_id = createAdvisorId;
+      await api.post("/api/leads", payload);
+      setCreateOpen(false);
+      setNotice(`"${createForm.company_name!.trim()}" added to leads`);
+      setTimeout(() => setNotice(null), 4000);
+      reload();
+    } catch (e) {
+      setCreateErr(e instanceof ApiError ? e.message : "Couldn't add the lead");
+    } finally {
+      setCreateBusy(false);
+    }
+  }
+
   async function doSaveEdit() {
     if (!editLead || editCompanyMissing || editEmailInvalid || editEmployeesInvalid) return;
     setBusyId(editLead.id);
@@ -236,11 +355,16 @@ export default function LeadsPage() {
         title="Leads"
         subtitle={isManager ? "Apollo leads fed to your Smart Advisors" : "Leads assigned to you — work them into opportunities"}
         actions={
-          isManager ? (
-            <Link className="btn" to="/leads/import">
-              <Icon name="upload" size={16} /> Import from Apollo
-            </Link>
-          ) : undefined
+          <div className="row" style={{ gap: ".5rem" }}>
+            <button className="btn" onClick={openCreate}>
+              <Icon name="plus" size={16} /> Add lead
+            </button>
+            {isManager && (
+              <Link className="btn secondary" to="/leads/import">
+                <Icon name="upload" size={16} /> Import from Apollo
+              </Link>
+            )}
+          </div>
         }
       />
       <ErrorBanner message={error || actErr} />
@@ -280,11 +404,13 @@ export default function LeadsPage() {
       ) : leads.length === 0 ? (
         <Card>
           <div className="muted" style={{ padding: "1rem", textAlign: "center" }}>
-            No leads yet.{" "}
+            No leads yet. Add one with the “Add lead” button above
             {isManager ? (
-              <Link to="/leads/import">Import an Apollo export</Link>
+              <>
+                , or <Link to="/leads/import">import an Apollo export</Link>.
+              </>
             ) : (
-              "Your manager will assign Apollo leads to you here."
+              " — or your manager will assign Apollo leads to you here."
             )}
           </div>
         </Card>
@@ -421,52 +547,13 @@ export default function LeadsPage() {
           <div className="modal" style={{ maxWidth: 680, maxHeight: "85vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Edit lead</h3>
             <ErrorBanner message={actErr} />
-            <div className="field">
-              <label>Company name *</label>
-              <input value={form.company_name ?? ""} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
-              {editCompanyMissing && <div className="field-error">Company name is required</div>}
-            </div>
-            <div className="row" style={{ gap: ".6rem" }}>
-              <EditField label="First name" name="first_name" form={form} setForm={setForm} />
-              <EditField label="Last name" name="last_name" form={form} setForm={setForm} />
-            </div>
-            <div className="row" style={{ gap: ".6rem" }}>
-              <EditField label="Title" name="title" form={form} setForm={setForm} />
-              <EditField label="Department" name="department" form={form} setForm={setForm} />
-            </div>
-            <div className="field">
-              <label>Email</label>
-              <input type="email" value={form.email ?? ""} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-              {editEmailInvalid && <div className="field-error">Enter a valid email address</div>}
-            </div>
-            <div className="row" style={{ gap: ".6rem" }}>
-              <EditField label="Corporate phone" name="corporate_phone" form={form} setForm={setForm} />
-              <EditField label="Company phone" name="company_phone" form={form} setForm={setForm} />
-            </div>
-            <div className="row" style={{ gap: ".6rem" }}>
-              <EditField label="Website" name="website" form={form} setForm={setForm} />
-              <EditField label="LinkedIn" name="linkedin_url" form={form} setForm={setForm} />
-            </div>
-            <EditField label="Company address" name="company_address" form={form} setForm={setForm} />
-            <div className="row" style={{ gap: ".6rem" }}>
-              <EditField label="City" name="company_city" form={form} setForm={setForm} />
-              <EditField label="State" name="company_state" form={form} setForm={setForm} />
-            </div>
-            <div className="row" style={{ gap: ".6rem" }}>
-              <div className="field" style={{ flex: 1 }}>
-                <label># Employees</label>
-                <input inputMode="numeric" value={form.num_employees ?? ""} onChange={(e) => setForm({ ...form, num_employees: e.target.value })} />
-                {editEmployeesInvalid && <div className="field-error">Enter a whole number</div>}
-              </div>
-              <EditField label="Annual revenue" name="annual_revenue" form={form} setForm={setForm} />
-            </div>
-            <EditField label="Subsidiary of" name="subsidiary_of" form={form} setForm={setForm} />
-            <EditField label="Technologies" name="technologies" form={form} setForm={setForm} />
-            <EditField label="Keywords" name="keywords" form={form} setForm={setForm} />
-            <div className="field">
-              <label>Notes</label>
-              <textarea rows={3} value={form.notes ?? ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-            </div>
+            <LeadFormFields
+              form={form}
+              set={(name, value) => setForm({ ...form, [name]: value })}
+              companyMissing={editCompanyMissing}
+              emailInvalid={editEmailInvalid}
+              employeesInvalid={editEmployeesInvalid}
+            />
             <div className="row" style={{ gap: ".5rem", justifyContent: "flex-end", marginTop: ".5rem" }}>
               <button className="btn secondary" onClick={() => setEditLead(null)}>Cancel</button>
               <button
@@ -480,7 +567,120 @@ export default function LeadsPage() {
           </div>
         </div>
       )}
+
+      {createOpen && (
+        <div className="modal-overlay" onClick={() => !createBusy && setCreateOpen(false)}>
+          <div
+            className="modal"
+            style={{ maxWidth: 680, maxHeight: "85vh", overflowY: "auto" }}
+            onClick={(e) => e.stopPropagation()}
+            onPaste={(e) => {
+              const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
+              const f = item?.getAsFile();
+              if (f) {
+                e.preventDefault();
+                void sendImage(f);
+              }
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>Add lead</h3>
+
+            {/* AI photo scan — mirrors the voice-capture card on New Opportunity. */}
+            <div className="card" style={{ borderColor: "var(--insight-border)", background: "var(--color-primary-soft)" }}>
+              <div className="row" style={{ justifyContent: "flex-start", gap: ".75rem" }}>
+                <span className="icon-tile" style={{ background: "#fff" }}>
+                  <Icon name="sparkles" size={20} />
+                </span>
+                <div style={{ flex: 1 }}>
+                  <strong>Scan a photo or screenshot</strong>
+                  <div className="muted" style={{ fontSize: ".8rem" }}>
+                    {!scanEnabled
+                      ? "Add an OpenAI API key on the server to enable AI photo scan."
+                      : scanning
+                        ? "Reading the image with AI…"
+                        : "A LinkedIn profile, business card or email signature — AI pre-fills the form for you to review. You can also paste an image here."}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!scanEnabled || scanning}
+                  onClick={() => scanInputRef.current?.click()}
+                >
+                  <Icon name="image" size={16} /> {scanning ? "Working…" : "Scan"}
+                </button>
+              </div>
+              {scanErr && <div className="error-banner" style={{ marginTop: ".75rem", marginBottom: 0 }}>{scanErr}</div>}
+            </div>
+            {/* No `capture` attribute: mobile browsers then offer BOTH camera and photo
+                library, so a saved LinkedIn screenshot is as reachable as a fresh photo. */}
+            <input
+              ref={scanInputRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void sendImage(f);
+                e.target.value = "";
+              }}
+            />
+
+            <ErrorBanner message={createErr} />
+
+            {isManager && advisors.length > 0 && (
+              <div className="field">
+                <label>Assign to</label>
+                <select value={createAdvisorId} onChange={(e) => setCreateAdvisorId(e.target.value)}>
+                  <option value={user?.id ?? ""}>Me{user?.fullName ? ` (${user.fullName})` : ""}</option>
+                  {advisors
+                    .filter((a) => a.id !== user?.id)
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>{a.fullName}</option>
+                    ))}
+                </select>
+              </div>
+            )}
+
+            <LeadFormFields
+              form={createForm}
+              set={setCreateField}
+              aiFields={aiFields}
+              companyMissing={createCompanyMissing}
+              emailInvalid={createEmailInvalid}
+              employeesInvalid={createEmployeesInvalid}
+            />
+
+            <div className="row" style={{ gap: ".5rem", justifyContent: "flex-end", marginTop: ".5rem" }}>
+              <button className="btn secondary" disabled={createBusy} onClick={() => setCreateOpen(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn"
+                disabled={createBusy || scanning || createCompanyMissing || createEmailInvalid || createEmployeesInvalid}
+                onClick={doCreate}
+              >
+                {createBusy ? "Adding…" : "Add lead"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/** Label with an optional "AI" badge — shown on Add-lead fields the photo scan filled. */
+function FieldLabel({ ai, children }: { ai?: boolean; children: string }) {
+  return (
+    <label>
+      {children}
+      {ai && (
+        <span className="badge ai" style={{ marginLeft: 6, fontSize: ".62rem", padding: "1px 6px" }}>
+          <Icon name="sparkles" size={11} /> AI
+        </span>
+      )}
+    </label>
   );
 }
 
@@ -488,18 +688,90 @@ function EditField({
   label,
   name,
   form,
-  setForm,
+  set,
+  ai,
 }: {
   label: string;
   name: string;
   form: Record<string, string>;
-  setForm: (f: Record<string, string>) => void;
+  set: (name: string, value: string) => void;
+  ai?: boolean;
 }) {
   return (
     <div className="field" style={{ flex: 1 }}>
-      <label>{label}</label>
-      <input value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} />
+      <FieldLabel ai={ai}>{label}</FieldLabel>
+      <input value={form[name] ?? ""} onChange={(e) => set(name, e.target.value)} />
     </div>
+  );
+}
+
+/** The full lead field grid — shared by the Edit and Add modals. `aiFields` marks
+ *  AI-prefilled fields with a badge (Add modal); `set` clears a badge on manual edit. */
+function LeadFormFields({
+  form,
+  set,
+  aiFields,
+  companyMissing,
+  emailInvalid,
+  employeesInvalid,
+}: {
+  form: Record<string, string>;
+  set: (name: string, value: string) => void;
+  aiFields?: Set<string>;
+  companyMissing: boolean;
+  emailInvalid: boolean;
+  employeesInvalid: boolean;
+}) {
+  const ai = (name: string) => aiFields?.has(name) ?? false;
+  return (
+    <>
+      <div className="field">
+        <FieldLabel ai={ai("company_name")}>Company name *</FieldLabel>
+        <input value={form.company_name ?? ""} onChange={(e) => set("company_name", e.target.value)} />
+        {companyMissing && <div className="field-error">Company name is required</div>}
+      </div>
+      <div className="row" style={{ gap: ".6rem" }}>
+        <EditField label="First name" name="first_name" form={form} set={set} ai={ai("first_name")} />
+        <EditField label="Last name" name="last_name" form={form} set={set} ai={ai("last_name")} />
+      </div>
+      <div className="row" style={{ gap: ".6rem" }}>
+        <EditField label="Title" name="title" form={form} set={set} ai={ai("title")} />
+        <EditField label="Department" name="department" form={form} set={set} ai={ai("department")} />
+      </div>
+      <div className="field">
+        <FieldLabel ai={ai("email")}>Email</FieldLabel>
+        <input type="email" value={form.email ?? ""} onChange={(e) => set("email", e.target.value)} />
+        {emailInvalid && <div className="field-error">Enter a valid email address</div>}
+      </div>
+      <div className="row" style={{ gap: ".6rem" }}>
+        <EditField label="Corporate phone" name="corporate_phone" form={form} set={set} ai={ai("corporate_phone")} />
+        <EditField label="Company phone" name="company_phone" form={form} set={set} ai={ai("company_phone")} />
+      </div>
+      <div className="row" style={{ gap: ".6rem" }}>
+        <EditField label="Website" name="website" form={form} set={set} ai={ai("website")} />
+        <EditField label="LinkedIn" name="linkedin_url" form={form} set={set} ai={ai("linkedin_url")} />
+      </div>
+      <EditField label="Company address" name="company_address" form={form} set={set} ai={ai("company_address")} />
+      <div className="row" style={{ gap: ".6rem" }}>
+        <EditField label="City" name="company_city" form={form} set={set} ai={ai("company_city")} />
+        <EditField label="State" name="company_state" form={form} set={set} ai={ai("company_state")} />
+      </div>
+      <div className="row" style={{ gap: ".6rem" }}>
+        <div className="field" style={{ flex: 1 }}>
+          <FieldLabel ai={ai("num_employees")}># Employees</FieldLabel>
+          <input inputMode="numeric" value={form.num_employees ?? ""} onChange={(e) => set("num_employees", e.target.value)} />
+          {employeesInvalid && <div className="field-error">Enter a whole number</div>}
+        </div>
+        <EditField label="Annual revenue" name="annual_revenue" form={form} set={set} ai={ai("annual_revenue")} />
+      </div>
+      <EditField label="Subsidiary of" name="subsidiary_of" form={form} set={set} ai={ai("subsidiary_of")} />
+      <EditField label="Technologies" name="technologies" form={form} set={set} ai={ai("technologies")} />
+      <EditField label="Keywords" name="keywords" form={form} set={set} ai={ai("keywords")} />
+      <div className="field">
+        <FieldLabel ai={ai("notes")}>Notes</FieldLabel>
+        <textarea rows={3} value={form.notes ?? ""} onChange={(e) => set("notes", e.target.value)} />
+      </div>
+    </>
   );
 }
 

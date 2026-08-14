@@ -244,6 +244,21 @@ export const leadUpdateSchema = z.object({
 });
 export type LeadUpdateInput = z.infer<typeof leadUpdateSchema>;
 
+/** Single-lead create (Add Lead modal — typed or AI photo scan). Same field
+ *  shapes as leadUpdateSchema; only company_name is required. */
+export const leadCreateSchema = leadUpdateSchema
+  .omit({ status: true, assigned_advisor_id: true })
+  .extend({
+    company_name: z.string().trim().min(1, "Company name is required").max(240),
+    advisor_id: z.string().uuid().optional(), // managerial only — the API enforces
+    source: z.enum(["manual", "screenshot"]).default("manual"),
+  });
+export type LeadCreateInput = z.infer<typeof leadCreateSchema>;
+
+/** Keys the AI photo scan may return — the Apollo vocabulary plus free-text notes. */
+export const LEAD_SCAN_KEYS = [...APOLLO_LEAD_FIELDS.map((f) => f.key), "notes"] as const;
+export type LeadScanKey = (typeof LEAD_SCAN_KEYS)[number];
+
 /** An Advisor Note on a lead — dated, editable, separate from the Apollo-imported notes field. */
 export const leadNoteSchema = z.object({
   body: z.string().trim().min(1, "Write a note first").max(4000),

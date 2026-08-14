@@ -4,6 +4,7 @@ import { db, leads, leadNotes, opportunities, users } from "@smart-crm/db";
 import {
   importAnalyzeSchema,
   leadImportCommitSchema,
+  leadCreateSchema,
   leadUpdateSchema,
   leadNoteSchema,
   leadConvertSchema,
@@ -20,7 +21,8 @@ import {
 import { parse } from "../lib/validate.js";
 import { authenticate } from "../auth/context.js";
 import { requireManagerial, requireUser } from "../auth/guards.js";
-import { badRequest, notFound, forbidden } from "../lib/errors.js";
+import { badRequest, notFound, forbidden, conflict } from "../lib/errors.js";
+import { isLeadScanConfigured, scanImageToLeadDraft, SCAN_IMAGE_TYPES } from "../services/lead-scan.js";
 import { findMatches } from "../services/dedupe.js";
 import { getStage, getInitialStageKey } from "../services/stages.js";
 import { logActivity } from "../services/activity.js";
@@ -177,6 +179,103 @@ export async function registerLeadRoutes(app: FastifyInstance) {
     }
 
     return input.dry_run ? { previews: results } : { created, results };
+  });
+
+  // GET /api/leads/scan-status — can the web app offer AI photo scan?
+  app.get("/scan-status", async (req) => {
+    requireUser(req);
+    return { enabled: isLeadScanConfigured() };
+  });
+
+  // POST /api/leads/scan — multipart image → AI-extracted lead draft. The image is
+  // held in memory for the OpenAI call only and never persisted.
+  app.post("/scan", async (req) => {
+    requireUser(req);
+    const file = await req.file();
+    if (!file) throw badRequest("No image provided", "no_file");
+    if (!SCAN_IMAGE_TYPES.has(file.mimetype)) {
+      throw badRequest(
+        "Use a PNG, JPG, WEBP or GIF. iPhone HEIC photos aren't supported — take a screenshot of the photo instead.",
+        "bad_type",
+      );
+    }
+    const image = await file.toBuffer();
+    if (image.byteLength === 0) throw badRequest("That image is empty", "empty_file");
+    if (image.byteLength > 10 * 1024 * 1024) throw badRequest("Image must be under 10MB", "too_large");
+    return scanImageToLeadDraft({ image, mimetype: file.mimetype });
+  });
+
+  // POST /api/leads — add a single lead (typed or AI photo scan). Advisors create for
+  // themselves; a super admin may assign to any active advisor. Same-company duplicates
+  // are rejected — the import wizard's rule, surfaced as a 409 instead of a silent skip.
+  app.post("/", async (req, reply) => {
+    const user = requireUser(req);
+    const managerial = user.role === "super_admin";
+    const input = parse(leadCreateSchema, req.body);
+
+    let advisorId = user.id;
+    if (input.advisor_id && input.advisor_id !== user.id) {
+      if (!managerial) throw forbidden("Only a manager can assign a lead to someone else");
+      const [ok] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, input.advisor_id), eq(users.orgId, user.orgId), eq(users.active, true)))
+        .limit(1);
+      if (!ok) throw badRequest("That advisor isn't in your organization", "bad_advisor");
+      advisorId = input.advisor_id;
+    }
+
+    const companyKey = normalizeCompanyKey(input.company_name);
+    const existing = await db
+      .select({ company: leads.companyName, advisorName: users.fullName })
+      .from(leads)
+      .leftJoin(users, eq(users.id, leads.assignedAdvisorId))
+      .where(eq(leads.orgId, user.orgId));
+    const dup = existing.find((e) => normalizeCompanyKey(e.company) === companyKey);
+    if (dup) {
+      throw conflict(
+        `"${dup.company}" is already a lead${dup.advisorName ? ` (assigned to ${dup.advisorName})` : ""}.`,
+        "duplicate_company",
+      );
+    }
+
+    const now = new Date();
+    const [created] = await db
+      .insert(leads)
+      .values({
+        orgId: user.orgId,
+        assignedAdvisorId: advisorId,
+        status: "new",
+        firstName: input.first_name ?? null,
+        lastName: input.last_name ?? null,
+        title: input.title ?? null,
+        email: input.email ?? null,
+        emailNormalized: normalizeEmail(input.email ?? null),
+        department: input.department ?? null,
+        linkedinUrl: input.linkedin_url ?? null,
+        companyName: input.company_name,
+        companyNameNormalized: normalizeCompanyName(input.company_name),
+        website: input.website ?? null,
+        companyAddress: input.company_address ?? null,
+        companyCity: input.company_city ?? null,
+        companyState: input.company_state == null ? null : (usStateCode(input.company_state) ?? input.company_state),
+        corporatePhone: input.corporate_phone ?? null,
+        companyPhone: input.company_phone ?? null,
+        phoneE164: normalizePhoneE164(input.corporate_phone || input.company_phone || null),
+        numEmployees: typeof input.num_employees === "number" ? input.num_employees : null,
+        keywords: input.keywords ?? null,
+        technologies: input.technologies ?? null,
+        annualRevenue: input.annual_revenue ?? null,
+        subsidiaryOf: input.subsidiary_of ?? null,
+        notes: input.notes ?? null,
+        source: input.source,
+        createdBy: user.id,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    reply.code(201);
+    return { lead: created };
   });
 
   // GET /api/leads?advisorId=&status=&q= — managerial sees all; advisors see their own.
