@@ -1,0 +1,20 @@
+# Advise API (Fastify). Runs from TypeScript source through tsx, exactly as the
+# PM2 setup did: the workspace packages (db, shared) are consumed as source.
+FROM node:24-bookworm-slim
+WORKDIR /app
+ENV NODE_ENV=production
+RUN corepack enable
+
+# Manifests first, so the install layer is reused when only code changes.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY db/package.json db/
+COPY packages/shared/package.json packages/shared/
+RUN pnpm install --frozen-lockfile --prod=false
+
+COPY . .
+
+WORKDIR /app/apps/api
+# Migrations first: the app only starts on a database that is up to date.
+CMD ["sh", "-c", "pnpm --dir /app db:migrate && exec node --import tsx src/index.ts"]

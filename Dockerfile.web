@@ -1,0 +1,22 @@
+# Advise web (PWA): built with Vite, served by Caddy, which also forwards
+# /api and /files to the API service (the job IIS did on the Windows server).
+
+# ---------- Stage 1: build ----------
+FROM node:24-bookworm-slim AS build
+WORKDIR /app
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY db/package.json db/
+COPY packages/shared/package.json packages/shared/
+RUN pnpm install --frozen-lockfile --prod=false
+
+COPY . .
+RUN pnpm --filter @smart-crm/web build
+
+# ---------- Stage 2: serve ----------
+FROM caddy:2-alpine
+COPY apps/web/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/apps/web/dist /srv

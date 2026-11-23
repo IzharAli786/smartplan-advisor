@@ -1,0 +1,29 @@
+{
+	admin off
+	# TLS ends at the platform's edge; this server speaks plain HTTP behind it.
+	auto_https off
+	servers {
+		# Keep the visitor's real address (X-Forwarded-For) from the edge proxy.
+		trusted_proxies static private_ranges 100.64.0.0/10
+	}
+}
+
+:{$PORT:8080} {
+	encode zstd gzip
+
+	# The API: same origin for the browser, a separate service behind it.
+	@api path /api/* /files/*
+	handle @api {
+		reverse_proxy {$API_UPSTREAM}
+	}
+
+	handle {
+		root * /srv
+		# The service worker and the app shell must never be served stale,
+		# or a deploy would stay invisible to installed apps.
+		@fresh path /sw.js /registerSW.js /index.html /manifest.webmanifest
+		header @fresh Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
